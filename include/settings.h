@@ -23,3 +23,17 @@ constexpr int      kScreenH         = 135;
 
 // --- Прочее ---
 constexpr uint32_t kSerialBaud      = 115200;
+
+// --- STT (Groq) ---
+constexpr const char* kGroqHost     = "api.groq.com";
+constexpr int         kGroqPort     = 443;
+constexpr const char* kGroqPath     = "/openai/v1/audio/transcriptions";
+constexpr const char* kSttModel     = "whisper-large-v3-turbo";
+constexpr const char* kSttLang      = "ru";
+constexpr const char* kSttBoundary  = "----aistickBoundary7f3a";
+
+// --- Таймауты сети, мс ---
+constexpr uint32_t kWifiTimeoutMs   = 15000;
+constexpr uint32_t kHttpConnectMs   = 5000;
+constexpr uint32_t kHttpReadMs      = 15000;
+constexpr size_t   kMaxSttResponse  = 8192;   // больше ответ не бывает
