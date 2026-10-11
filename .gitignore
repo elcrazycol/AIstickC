@@ -1,0 +1,19 @@
+# Секреты — никогда в git
+include/config.h
+
+# Сборка PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Редактор
+.vscode/
+.idea/
+
+# Артефакты милестоуна 0
+test.wav
+*.wav
+
+# macOS
+.DS_Store
+.build/

@@ -1,0 +1,13 @@
+// Шаблон секретов. Скопируй в config.h и заполни.
+// config.h в .gitignore и в репозиторий не попадает.
+#pragma once
+
+// Бесплатный ключ с https://console.groq.com/
+#define GROQ_API_KEY ""
+
+// Ключ подписки OpenCode Go (https://opencode.ai/go)
+#define OPENCODE_API_KEY ""
+
+// Wi-Fi 2.4 ГГц (5 ГГц ESP32 не поддерживает)
+#define WIFI_SSID ""
+#define WIFI_PASS ""
