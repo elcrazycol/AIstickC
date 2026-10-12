@@ -1,0 +1,328 @@
+#!/usr/bin/env python3
+"""Эмулятор экрана стика: рисует PNG и GIF из настоящего шрифта и картинки.
+
+    python3 tools/mock_screen.py            # всё в docs/images/
+    python3 tools/mock_screen.py --out DIR
+
+Шрифт (include/font_jbmono.h) и картинка (include/idle_image.h) — те же
+сгенерированные файлы, что идут в прошивку, поэтому текст и портрет
+пиксель-в-пиксель совпадают с устройством.
+
+Логика отрисовки повторяет src/ui.cpp: константы раскладки и цвета продублированы
+(меняешь ui.cpp — поправь и здесь). Камера для README не нужна.
+"""
+import argparse
+import math
+import os
+import re
+import sys
+
+from PIL import Image
+
+# --- раскладка: должно совпадать с src/ui.cpp и include/settings.h ---
+W, H = 240, 135
+STATUS_H = 14
+MARGIN = 2
+BODY_LINES = 5
+PAGE_BASE = 131
+WAVE_BARS = 58
+WAVE_H = 30
+FIRST_BASE = 26
+
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+RED = (255, 0, 0)
+GREEN = (0, 200, 0)
+YELLOW = (255, 255, 0)
+GRAY = (128, 132, 128)      # 0x8410
+PANEL = (24, 28, 24)        # 0x18E3
+PANEL_EDGE = (128, 132, 128)
+DIM_DARK = (33, 4, 4)       # 0x2104 (пустые палочки)
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+# ---------------------------------------------------------------- шрифт
+class Font:
+    def __init__(self, path):
+        src = open(path).read()
+        self.bits = [int(x) for x in re.findall(
+            r"-?\d+", re.search(r"_Bitmaps\[\] = \{(.*?)\n\};", src, re.S).group(1))]
+        self.glyphs = []
+        for line in re.search(r"_Glyphs\[\] = \{(.*?)\n\};", src, re.S).group(1).splitlines():
+            n = [int(x) for x in re.findall(r"-?\d+", line)]
+            if len(n) == 6:
+                self.glyphs.append(tuple(n))
+        self.ranges = [(int(a, 16), int(b, 16), int(c)) for a, b, c in re.findall(
+            r"0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+), (\d+)",
+            re.search(r"_Ranges\[\] = \{(.*?)\};", src, re.S).group(1))]
+        self.xadv = int(re.search(r"_XAdvance = (\d+)", src).group(1))
+        self.yadv = int(re.search(r"_YAdvance = (\d+)", src).group(1))
+
+    def _glyph(self, cp):
+        for lo, hi, base in self.ranges:
+            if lo <= cp <= hi:
+                return self.glyphs[cp - lo + base]
+        return None
+
+    def text(self, img, s, x, baseline, color=WHITE, size=1):
+        px = img.load()
+        for ch in s:
+            g = self._glyph(ord(ch))
+            if g is None:
+                x += self.xadv * size
+                continue
+            off, w, h, adv, xo, yo = g
+            for row in range(h):
+                for col in range(w):
+                    bit = row * w + col
+                    if self.bits[off + bit // 8] & (0x80 >> (bit % 8)):
+                        for dy in range(size):
+                            for dx in range(size):
+                                xx = x + (xo + col) * size + dx
+                                yy = baseline + (yo + row) * size + dy
+                                if 0 <= xx < W and 0 <= yy < H:
+                                    px[xx, yy] = color
+            x += adv * size
+        return x
+
+    def width(self, s, size=1):
+        return len(s) * self.xadv * size
+
+    def height(self, size=1):
+        # высота строки шрифта = выше+ниже базовой линии
+        above = max(-g[5] for g in self.glyphs)
+        below = max(g[5] + g[2] for g in self.glyphs)
+        return (above + below) * size
+
+
+# ---------------------------------------------------------------- картинка
+def load_image(path):
+    src = open(path).read()
+    w = int(re.search(r"_Width = (\d+)", src).group(1))
+    h = int(re.search(r"_Height = (\d+)", src).group(1))
+    vals = [int(x, 16) for x in re.findall(r"0x[0-9A-Fa-f]{4}",
+            re.search(r"_Bits\[\] = \{(.*?)\n\};", src, re.S).group(1))]
+    img = Image.new("RGB", (w, h))
+    px = img.load()
+    for i, v in enumerate(vals[:w * h]):
+        r = (v >> 11) & 0x1F
+        g = (v >> 5) & 0x3F
+        b = v & 0x1F
+        px[i % w, i // w] = ((r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2))
+    return img
+
+
+# ---------------------------------------------------------------- цвет
+def hue565(h):
+    reg = h // 43
+    rem = (h - reg * 43) * 6
+    tbl = [(255, rem, 0), (255 - rem, 255, 0), (0, 255, rem),
+           (0, 255 - rem, 255), (rem, 0, 255), (255, 0, 255 - rem)]
+    return tbl[reg % 6]
+
+
+# ---------------------------------------------------------------- экраны
+def fill(px, x0, y0, x1, y1, color):
+    for y in range(max(0, y0), min(H, y1)):
+        for x in range(max(0, x0), min(W, x1)):
+            px[x, y] = color
+
+
+def status_bar(img, font, pct, rssi=4, bolt=False):
+    px = img.load()
+    fill(px, 0, 0, W, STATUS_H, BLACK)
+    bx, by, bw, bh = W - MARGIN - 15 - 2, 13 - 8, 15, 8
+    for x in range(bx, bx + bw):
+        px[x, by] = px[x, by + bh - 1] = GRAY
+    for y in range(by, by + bh):
+        px[bx, y] = px[bx + bw - 1, y] = GRAY
+    px[bx + bw, by + 2] = px[bx + bw + 1, by + 2] = GRAY
+    inner = (bw - 2) * pct // 100
+    if inner > 0:
+        c = RED if pct <= 20 else (YELLOW if pct <= 50 else GREEN)
+        fill(px, bx + 1, by + 1, bx + 1 + inner, by + bh - 1, c)
+    sx0 = bx - 8 - (4 * 2 + 3 * 2)
+    for i in range(4):
+        hh = 3 + i * 2
+        c = GREEN if i < rssi else DIM_DARK
+        fill(px, sx0 + i * 4, 13 - hh, sx0 + i * 4 + 2, 13, c)
+
+
+def screen_idle(font, portrait, msgs=12, mem=2, pct=78, rssi=4):
+    img = Image.new("RGB", (W, H), BLACK)
+    img.paste(portrait, (W - portrait.width, H - portrait.height))
+    status_bar(img, font, pct, rssi)
+    font.text(img, "elcrazycol/", MARGIN, 40, GRAY)
+    font.text(img, "AIstickC", MARGIN, 60, GREEN)
+    font.text(img, f"{msgs} msgs", MARGIN, 80, GRAY)
+    font.text(img, f"В памяти: {mem}", MARGIN, H - 4, GRAY)
+    return img
+
+
+def screen_recording(font, waves, remain_ms=12000, pct=78, rssi=4):
+    img = Image.new("RGB", (W, H), BLACK)
+    status_bar(img, font, pct, rssi)
+    sec = f"{(remain_ms + 999) // 1000}"
+    size = 2
+    font.text(img, sec, (W - font.width(sec, size)) // 2,
+              30 + (52 - font.height(size)) // 2, RED, size)
+    hint = "Говори. Отпустишь — отправлю"
+    font.text(img, hint, (W - font.width(hint)) // 2, 88, GRAY)
+    draw_waves(img, waves)
+    return img
+
+
+def draw_waves(img, waves):
+    px = img.load()
+    bar_w, gap = 3, 1
+    total = WAVE_BARS * (bar_w + gap) - gap
+    x0 = (W - total) // 2
+    top = H - WAVE_H - 1
+    fill(px, 0, top, W, H, BLACK)
+    for i, amp in enumerate(waves[:WAVE_BARS]):
+        if amp <= 0:
+            continue
+        hh = max(1, amp * WAVE_H // 255)
+        c = hue565((i * 256 // WAVE_BARS + 40) % 256)
+        fill(px, x0 + i * (bar_w + gap), H - hh, x0 + i * (bar_w + gap) + bar_w, H, c)
+
+
+def screen_waiting(font, phase, pct=78, rssi=4):
+    img = Image.new("RGB", (W, H), BLACK)
+    status_bar(img, font, pct, rssi)
+    draw_dots(img, 0)
+    return img
+
+
+def draw_dots(img, now_ms):
+    px = img.load()
+    r, gap = 3, 8
+    cy = FIRST_BASE + 5
+    x0 = MARGIN + 3
+    fill(px, 0, FIRST_BASE - 3, gap * 2 + 12, FIRST_BASE - 3 + 18, BLACK)
+    phase = (now_ms % 900) / 900.0 * 2 * math.pi
+    for i in range(3):
+        dy = int(3 * math.sin(phase + i * 2.0944))
+        c = hue565((now_ms // 5 + i * 70) % 256)
+        for y in range(cy + dy - r, cy + dy + r + 1):
+            for x in range(x0 + i * gap - r, x0 + i * gap + r + 1):
+                if (x - (x0 + i * gap)) ** 2 + (y - (cy + dy)) ** 2 <= r * r + 1:
+                    if 0 <= x < W and 0 <= y < H:
+                        px[x, y] = c
+
+
+def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE):
+    img = Image.new("RGB", (W, H), BLACK)
+    status_bar(img, font, pct, rssi)
+    for i in range(BODY_LINES):
+        idx = page * BODY_LINES + i
+        if idx >= len(lines):
+            break
+        font.text(img, lines[idx], MARGIN, FIRST_BASE + i * font.yadv, color)
+    if total > 1:
+        ind = f"{page + 1}/{total}"
+        font.text(img, ind, W - MARGIN - font.width(ind), PAGE_BASE, GRAY)
+    return img
+
+
+def screen_notice(font, text, pct=78, rssi=4):
+    img = Image.new("RGB", (W, H), BLACK)
+    status_bar(img, font, pct, rssi)
+    tw = font.width(text)
+    bw = tw + 12
+    bx = (W - bw) // 2
+    by = 52
+    px = img.load()
+    fill(px, bx, by, bx + bw, by + 24, PANEL)
+    for x in range(bx, bx + bw):
+        px[x, by] = px[x, by + 23] = PANEL_EDGE
+    for y in range(by, by + 24):
+        px[bx, y] = px[bx + bw - 1, y] = PANEL_EDGE
+    font.text(img, text, bx + 6, by + 24 - 9, WHITE)
+    return img
+
+
+# ---------------------------------------------------------------- текст
+def wrap(font, text, max_px):
+    lines, cur = [], ""
+    for word in text.split(" "):
+        cand = word if not cur else cur + " " + word
+        if font.width(cand) <= max_px:
+            cur = cand
+        else:
+            if cur:
+                lines.append(cur)
+            while font.width(word) > max_px:
+                n = max_px // font.xadv
+                lines.append(word[:n])
+                word = word[n:]
+            cur = word
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--out", default=os.path.join(ROOT, "docs", "images"))
+    args = ap.parse_args()
+    os.makedirs(args.out, exist_ok=True)
+
+    font = Font(os.path.join(ROOT, "include", "font_jbmono.h"))
+    portrait = load_image(os.path.join(ROOT, "include", "idle_image.h"))
+    print(f"шрифт: {font.xadv}x{font.yadv}, картинка {portrait.size}")
+
+    def save(img, name):
+        p = os.path.join(args.out, name)
+        img.resize((W * 3, H * 3), Image.NEAREST).save(p)
+        print("  ", p)
+
+    # --- PNG экранов
+    save(screen_idle(font, portrait), "screen-idle.png")
+    save(screen_recording(font, [int(140 + 100 * math.sin(i / 3.5)) % 256
+                                 for i in range(WAVE_BARS)]), "screen-recording.png")
+    save(screen_waiting(font, "Отвечаю"), "screen-waiting.png")
+    answer = ("Go — компилируемый язык от Google: простой синтаксис, быстрая "
+              "компиляция и хорошая работа с многопоточностью. Слабее он в GUI, "
+              "ML и там, где нужны богатые абстракции.")
+    lines = wrap(font, answer, W - 2 * MARGIN)
+    save(screen_answer(font, lines, 0, 2), "screen-answer.png")
+    save(screen_notice(font, "История разговора очищена"), "screen-notice.png")
+
+    # --- GIF: запись (волны + отсчёт)
+    frames = []
+    for k in range(24):
+        waves = [max(0, int(120 + 110 * math.sin((i + k) / 3.5))) for i in range(WAVE_BARS)]
+        frames.append(screen_recording(font, waves, 12000 - k * 250)
+                      .resize((W * 2, H * 2), Image.NEAREST))
+    frames[0].save(os.path.join(args.out, "demo-recording.gif"), save_all=True,
+                   append_images=frames[1:], duration=90, loop=0, disposal=2)
+    print("  ", os.path.join(args.out, "demo-recording.gif"))
+
+    # --- GIF: точки
+    frames = [screen_waiting(font, "Отвечаю").resize((W * 2, H * 2), Image.NEAREST)]
+    for k in range(20):
+        img = Image.new("RGB", (W, H), BLACK)
+        status_bar(img, font, 78, 4)
+        draw_dots(img, k * 45)
+        frames.append(img.resize((W * 2, H * 2), Image.NEAREST))
+    frames[0].save(os.path.join(args.out, "demo-waiting.gif"), save_all=True,
+                   append_images=frames[1:], duration=60, loop=0, disposal=2)
+    print("  ", os.path.join(args.out, "demo-waiting.gif"))
+
+    # --- GIF: печатающийся текст
+    frames = []
+    words = answer.split(" ")
+    for k in range(1, len(words) + 1):
+        txt = " ".join(words[:k])
+        frames.append(screen_answer(font, wrap(font, txt, W - 2 * MARGIN), 0, 1)
+                      .resize((W * 2, H * 2), Image.NEAREST))
+    frames[0].save(os.path.join(args.out, "demo-typing.gif"), save_all=True,
+                   append_images=frames[1:], duration=140, loop=0, disposal=2)
+    print("  ", os.path.join(args.out, "demo-typing.gif"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

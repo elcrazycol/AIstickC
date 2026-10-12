@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  native:
+    name: Чистая логика (clang++, без железа)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установка clang++
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Прогон тестов
+        run: tools/run_tests.sh
