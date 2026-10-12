@@ -15,10 +15,9 @@ constexpr size_t   kAudioBytes      = (size_t)kSampleRate * 2 *
 
 // --- Кнопки ---
 constexpr uint32_t kLongPressMs     = 800;     // порог «долгого» BtnB
-// Удержание BtnA, после которого нажатие считается записью, а не кликом.
-constexpr uint32_t kRecordHoldMs    = 200;
-// Пауза между кликами BtnA, после которой жест считается завершённым.
-constexpr uint32_t kClickGapMs      = 450;
+// Верхняя кнопка: удержание -> главный экран, ещё дольше -> сброс сессии.
+constexpr uint32_t kPwrIdleMs       = 3000;
+constexpr uint32_t kPwrClearMs      = 5000;
 
 // --- Экран ---
 constexpr int      kScreenRotation  = 1;       // ландшафт: 1 или 3
