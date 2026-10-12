@@ -2,6 +2,8 @@
 //
 // Управление:
 //   BtnA (зажать)   — запись, отпусти — отправить
+//   BtnA (1 клик)   — на главный экран
+//   BtnA (3 клика)  — сбросить сессию (история сообщений)
 //   BtnB (тап)      — следующая страница (закольцовано)
 //   BtnPWR (тап)    — предыдущая страница (верхняя кнопка)
 //   BtnB (удержать) — очистка экрана и памяти диалога
@@ -13,6 +15,7 @@
 
 #include <Arduino.h>
 #include <M5Unified.h>
+#include <Preferences.h>
 
 #include <string>
 #include <vector>
@@ -46,6 +49,10 @@ size_t g_page = 0;
 int    g_color = kWhite;
 
 chat::History g_history(kChatMaxTurns);
+
+// Счётчик отправленных сообщений: живёт в NVS, переживает выключение.
+Preferences g_prefs;
+uint32_t g_msgs = 0;
 
 // Волны: амплитуды последних кусков записи, свежие справа.
 uint8_t g_wave[ui::kWaveBars] = {0};
@@ -103,7 +110,7 @@ void showError(const char* text) {
 void showIdle() {
   ui::dotsStop();
   g_state = State::Idle;
-  ui::idle(g_history.turnCount());
+  ui::idle(g_history.turnCount(), g_msgs);
 }
 
 // Начало фазы ожидания: чистый экран и запущенная анимация точек.
@@ -132,12 +139,34 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
   ui::answerText(g_lines, 0, kWhite);
 }
 
-// Захват audioBytes байт в PSRAM. Возвращает число записанных байт.
-size_t record(size_t audioBytes) {
+// Жесты короткого нажатия BtnA.
+uint8_t  g_clicks = 0;
+uint32_t g_lastClick = 0;
+
+void registerClick() {
+  if (g_clicks > 0 && (millis() - g_lastClick) > kClickGapMs) g_clicks = 0;
+  ++g_clicks;
+  g_lastClick = millis();
+  Serial.printf("[main] клик %u\n", (unsigned)g_clicks);
+}
+
+// Результат захвата.
+struct Capture {
+  size_t bytes = 0;
+  bool held = false;  // удержание дошло до порога — это вопрос, а не клик
+};
+
+// Захват audioBytes байт в PSRAM.
+//
+// Микрофон включается сразу, поэтому начало фразы не теряется. Но экран
+// записи и сигнал появляются только после порога удержания: короткий клик
+// не мигает записью и ничего не отправляет.
+Capture capture(size_t audioBytes) {
+  Capture out;
   if (!M5.Mic.isRunning()) {
     if (!M5.Mic.begin()) {
       Serial.println("[main] микрофон не стартовал");
-      return 0;
+      return out;
     }
   }
 
@@ -149,6 +178,11 @@ size_t record(size_t audioBytes) {
     const size_t warm = (size_t)kSampleRate * 200 / 1000;
     size_t got = 0;
     while (got < warm) {
+      // Кнопку уже отпустили — это клик, прогреваться незачем.
+      if (!M5.BtnA.isPressed()) {
+        M5.Mic.end();
+        return out;
+      }
       const size_t want = min(warm - got, chunkSamples);
       if (!M5.Mic.record(g_chunk, want, kSampleRate)) { delay(1); continue; }
       while (M5.Mic.isRecording()) delay(1);
@@ -158,6 +192,7 @@ size_t record(size_t audioBytes) {
 
   size_t done = 0;
   uint32_t lastSec = 0xFFFFFFFF;
+  bool uiShown = false;
   const uint32_t started = millis();
   while (done < totalSamples && (millis() - started) < (kMaxRecordMs + 2000)) {
     const size_t want = min(totalSamples - done, chunkSamples);
@@ -170,7 +205,18 @@ size_t record(size_t audioBytes) {
 
     M5.update();
     const uint32_t elapsed = millis() - started;
-    if (millis() - g_lastDraw > 40) {
+
+    // Порог удержания пройден — показываем запись и пищим.
+    if (!uiShown && elapsed >= kRecordHoldMs) {
+      uiShown = true;
+      out.held = true;
+      g_state = State::Recording;
+      g_lastDraw = 0;
+      ui::recording(kMaxRecordMs - elapsed, g_wave, g_waveN);
+      M5.Speaker.tone(2000, 100);
+    }
+
+    if (uiShown && millis() - g_lastDraw > 40) {
       g_lastDraw = millis();
       const uint32_t remain =
           elapsed >= kMaxRecordMs ? 0 : kMaxRecordMs - elapsed;
@@ -186,11 +232,32 @@ size_t record(size_t audioBytes) {
   }
 
   M5.Mic.end();
-  return done * 2;
+  out.bytes = done * 2;
+  return out;
 }
 
-// Полный цикл: запись → STT → LLM → вывод.
-void runQuestion() {
+// Полный цикл: запись → STT → LLM → вывод. Короткое нажатие вопросом не
+// считается — это клик, и жест разбирается снаружи.
+void askQuestion() {
+  g_waveN = 0;
+  const Capture cap = capture(kAudioBytes);
+
+  if (!cap.held) {
+    registerClick();
+    return;
+  }
+  g_clicks = 0;
+
+  const uint32_t ms = (uint32_t)(cap.bytes / 2) * 1000 / kSampleRate;
+  Serial.printf("[main] записано %u байт (%u мс)\n", (unsigned)cap.bytes, ms);
+
+  if (cap.bytes < (size_t)kSampleRate * 2 * kMinRecordMs / 1000) {
+    showError("Слишком коротко");
+    delay(1200);
+    showIdle();
+    return;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
     startWaiting();
     if (!net::connectWifi(kWifiTimeoutMs)) {
@@ -201,23 +268,6 @@ void runQuestion() {
     }
   }
 
-  g_state = State::Recording;
-  g_waveN = 0;
-  g_lastDraw = 0;
-  ui::recording(kMaxRecordMs, g_wave, g_waveN);
-  M5.Speaker.tone(2000, 100);
-
-  const size_t got = record(kAudioBytes);
-  const uint32_t ms = (uint32_t)(got / 2) * 1000 / kSampleRate;
-  Serial.printf("[main] записано %u байт (%u мс)\n", (unsigned)got, ms);
-
-  if (got < (size_t)kSampleRate * 2 * kMinRecordMs / 1000) {
-    showError("Слишком коротко");
-    delay(1200);
-    showIdle();
-    return;
-  }
-
   // Прокси на VPS принимает сырой LPCM без WAV-заголовка.
   const uint8_t* pcm = g_audio + wav::headerSize();
 
@@ -225,13 +275,17 @@ void runQuestion() {
   startWaiting();
 
   g_state = State::Recognizing;
-  stt::Result s = stt::transcribe(pcm, got);
+  stt::Result s = stt::transcribe(pcm, cap.bytes);
   if (!s.ok) {
     Serial.printf("[main] ошибка STT: %s\n", s.error.c_str());
     showError(s.error.c_str());
     return;
   }
   Serial.printf("[main] текст: %s\n", s.text.c_str());
+
+  // Сообщение отправляем — увеличиваем счётчик и сохраняем в NVS.
+  ++g_msgs;
+  g_prefs.putUInt("msgs", g_msgs);
 
   // Вопрос распознан — спрашиваем модель потоком.
   g_state = State::Streaming;
@@ -271,6 +325,11 @@ void setup() {
   M5.begin(cfg);
   M5.Display.setRotation(kScreenRotation);
   ui::begin();
+
+  // Счётчик сообщений переживает выключение.
+  g_prefs.begin("aistick", false);
+  g_msgs = g_prefs.getUInt("msgs", 0);
+  Serial.printf("[main] всего сообщений: %u\n", (unsigned)g_msgs);
 
   // Порог «долгого» нажатия BtnB — по спеке.
   M5.BtnB.setHoldThresh(kLongPressMs);
@@ -335,9 +394,23 @@ void loop() {
     }
   }
 
+  // Большая кнопка: удержание — вопрос, короткое нажатие — клик.
   if ((g_state == State::Idle || g_state == State::Showing) &&
       M5.BtnA.wasPressed()) {
-    runQuestion();
+    askQuestion();
+  }
+
+  // Жест завершён: разбираем накопленные клики.
+  if (g_clicks > 0 && (millis() - g_lastClick) > kClickGapMs) {
+    if (g_clicks == 1) {
+      Serial.println("[main] 1 клик: на главный экран");
+      showIdle();
+    } else if (g_clicks == 3) {
+      g_history.clear();
+      Serial.println("[main] 3 клика: сессия сброшена");
+      showIdle();
+    }
+    g_clicks = 0;
   }
 
   delay(20);

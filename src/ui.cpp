@@ -7,6 +7,7 @@
 
 #include "settings.h"
 #include "font_jbmono.h"
+#include "idle_image.h"
 
 namespace ui {
 
@@ -94,8 +95,8 @@ void boltLocked(int cx, int top, int h) {
   M5.Display.drawLine(cx + 1, y1, cx - 1, y2, kWhite);
 }
 
-void statusBarLocked() {
-  M5.Display.fillRect(0, 0, kScreenW, kStatusH, kBlack);
+void statusBarDrawLocked(bool clear) {
+  if (clear) M5.Display.fillRect(0, 0, kScreenW, kStatusH, kBlack);
 
   // Батарея справа, низ — на одном уровне с палочками.
   int pct = 0;
@@ -130,6 +131,8 @@ void statusBarLocked() {
     M5.Display.fillRect(sx0 + i * (sbw + sgap), 13 - h, sbw, h, color);
   }
 }
+
+void statusBarLocked() { statusBarDrawLocked(true); }
 
 // Волны громкости: вертикальные радужные столбики, свежие справа.
 // Чистит только свою полоску — это и есть быстрый путь анимации.
@@ -196,17 +199,38 @@ void statusBar() {
   statusBarLocked();
 }
 
-void idle(size_t memTurns) {
+void idle(size_t memTurns, uint32_t msgs) {
   Guard g;
   M5.Display.fillScreen(kBlack);
-  statusBarLocked();
   useFontLocked();
 
-  centeredLocked("Держи A — спроси", 62, kGreen);
+  // Картинка прижата к правому низу, снизу без отступа, сверху небольшой.
+  M5.Display.pushImage(kScreenW - kImage_idle_Width,
+                       kScreenH - kImage_idle_Height, kImage_idle_Width,
+                       kImage_idle_Height,
+                       (const lgfx::rgb565_t*)kImage_idle_Bits);
+
+  // Иконки статуса поверх картинки — фон не затираем, чтобы картинка
+  // доходила до самого верха.
+  statusBarDrawLocked(false);
+
+  // Слева — «шапка» как у репозитория.
+  M5.Display.setTextColor(kGray, kBlack);
+  M5.Display.setCursor(kMargin, 40);
+  M5.Display.print("elcrazycol/");
+
+  M5.Display.setTextColor(kGreen, kBlack);
+  M5.Display.setCursor(kMargin, 60);
+  M5.Display.print("AIstickC");
+
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%u msgs", (unsigned)msgs);
+  M5.Display.setTextColor(kGray, kBlack);
+  M5.Display.setCursor(kMargin, 80);
+  M5.Display.print(buf);
 
   char mem[32];
   snprintf(mem, sizeof(mem), "В памяти: %u", (unsigned)memTurns);
-  M5.Display.setTextColor(kGray, kBlack);
   M5.Display.setCursor(kMargin, kScreenH - 4);
   M5.Display.print(mem);
 }
