@@ -64,7 +64,6 @@ bool     g_textStarted = false;
 uint32_t g_btnStart = 0;
 bool     g_btnArmed = false;  // нажатие ещё не отработано
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
-uint32_t g_lastHoldLog = 0;
 
 // Ширина любого символа в моноширинном шрифте — константа.
 int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
@@ -293,14 +292,12 @@ void pollSideButton() {
   if (M5.BtnB.wasPressed()) {
     g_btnStart = millis();
     g_btnArmed = true;
-    Serial.printf("[main] BtnB нажата @%u\n", (unsigned)g_btnStart);
   }
 
   if (g_btnArmed && M5.BtnB.isPressed()) {
     const uint32_t held = millis() - g_btnStart;
     if (held >= kClearHoldMs) {
       g_btnArmed = false;
-      Serial.printf("[main] удержание %u мс: сброс сессии\n", (unsigned)held);
       g_history.clear();
       ui::notice("История разговора очищена");
       g_panelShownAt = millis();
@@ -310,10 +307,6 @@ void pollSideButton() {
     if (millis() - g_lastDraw > 60) {
       g_lastDraw = millis();
       ui::holdProgress((int)(100ULL * held / kClearHoldMs));
-    }
-    if (millis() - g_lastHoldLog >= 500) {
-      g_lastHoldLog = millis();
-      Serial.printf("[main] держу %u мс\n", (unsigned)held);
     }
   }
 
