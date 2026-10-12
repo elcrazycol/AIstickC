@@ -62,6 +62,7 @@ bool     g_textStarted = false;
 // Удержание боковой кнопки.
 uint32_t g_btnStart = 0;
 bool     g_btnArmed = false;  // нажатие ещё не отработано
+uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
 
 // Ширина любого символа в моноширинном шрифте — константа.
 int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
@@ -273,28 +274,41 @@ void runQuestion() {
   }
 }
 
-// Очистка сессии с уведомлением на экране.
-void clearSession() {
-  g_history.clear();
-  Serial.println("[main] сессия сброшена");
-  ui::notice("История разговора очищена");
-  delay(1500);
-  showIdle();
-}
-
-// Боковая кнопка: тап — листание вперёд, удержание 3 с — сброс сессии
-// (панель + главный экран). Срабатывает, не дожидаясь отпускания.
+// Боковая кнопка: тап — листание вперёд, удержание 3 с — сброс сессии.
+// Панель сброса висит, пока кнопка удерживается, и уходит по отпусканию —
+// так её невозможно пропустить.
 void pollSideButton() {
+  if (g_panelShownAt != 0) {
+    if (!M5.BtnB.isPressed()) {
+      const uint32_t shown = millis() - g_panelShownAt;
+      if (shown < 700) delay(700 - shown);  // не мелькаем, если отпустил сразу
+      g_panelShownAt = 0;
+      showIdle();
+    }
+    return;
+  }
+
   if (M5.BtnB.wasPressed()) {
     g_btnStart = millis();
     g_btnArmed = true;
+    Serial.printf("[main] BtnB нажата @%u\n", (unsigned)g_btnStart);
   }
 
-  if (g_btnArmed && M5.BtnB.isPressed() &&
-      (millis() - g_btnStart) >= kClearHoldMs) {
-    g_btnArmed = false;
-    Serial.println("[main] удержание: сброс сессии");
-    clearSession();
+  if (g_btnArmed && M5.BtnB.isPressed()) {
+    const uint32_t held = millis() - g_btnStart;
+    if (held >= kClearHoldMs) {
+      g_btnArmed = false;
+      Serial.printf("[main] удержание %u мс: сброс сессии\n", (unsigned)held);
+      g_history.clear();
+      ui::notice("История разговора очищена");
+      g_panelShownAt = millis();
+      return;
+    }
+    // Пока держат — показываем растущую полоску, чтобы было видно отсчёт.
+    if (millis() - g_lastDraw > 60) {
+      g_lastDraw = millis();
+      ui::holdProgress((int)(100ULL * held / kClearHoldMs));
+    }
   }
 
   if (M5.BtnB.wasReleased()) {
@@ -310,6 +324,7 @@ void pollSideButton() {
       }
     }
     g_btnArmed = false;
+    ui::holdProgress(0);  // убрать полоску удержания
   }
 }
 

@@ -328,4 +328,15 @@ void notice(const char* text) {
   M5.Display.print(text);
 }
 
+void holdProgress(int percent) {
+  Guard g;
+  if (percent < 0) percent = 0;
+  if (percent > 100) percent = 100;
+  constexpr int h = 3;
+  const int y = kScreenH - h;
+  M5.Display.fillRect(0, y, kScreenW, h, kBlack);
+  const int w = kScreenW * percent / 100;
+  if (w > 0) M5.Display.fillRect(0, y, w, h, kYellow);
+}
+
 }  // namespace ui

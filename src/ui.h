@@ -63,4 +63,7 @@ void pageIndicator(size_t page, size_t total);
 // Панель с коротким уведомлением по центру (например, о сбросе истории).
 void notice(const char* text);
 
+// Индикатор удержания кнопки: тонкая полоска внизу экрана.
+void holdProgress(int percent);
+
 }  // namespace ui
