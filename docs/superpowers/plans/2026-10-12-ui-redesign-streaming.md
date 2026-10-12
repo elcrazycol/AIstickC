@@ -48,7 +48,11 @@
 `llm::ask(history, question, Stream)`:
 - тело со `stream:true` и `reasoning_effort:"none"`,
   `Accept: text/event-stream`;
-- читает поток, декодирует chunked целиком и разбирает новый хвост;
+- читает поток; chunked-тело декодируется **инкрементально**
+  (`src/pure/chunked.h`, тесты `test/test_chunked.cpp`): сырьё выбрасывается
+  по мере разбора, память не растёт с длиной потока. Раньше тело копилось
+  целиком и декодировалось заново (O(n²)), из-за чего поток обрезался на
+  лимите;
 - на каждый `delta.content` зовёт `onDelta`; `delta.reasoning_content`
   учитывается только как «активность» (страховка, если параметр проигнорят);
 - `[DONE]` завершает; если `content` пуст — фолбэк на разбор обычного JSON;
@@ -83,8 +87,9 @@
 
 ## Согласованность
 
-`sse::Parser` — Task 2 и 3. `llm::Stream::onDelta` — Task 3 и 5.
-`stt::Hooks` — Task 4 и 5. `ui::kBodyLines`/`kMargin` — Task 5 и `main`.
+`sse::Parser` — Task 2 и 3. `chunked::Decoder` — Task 3.
+`llm::Stream::onDelta` — Task 3 и 5. `stt::Hooks` — Task 4 и 5.
+`ui::kBodyLines`/`kMargin` — Task 5 и `main`.
 
 ## Известный компромисс
 

@@ -5,7 +5,11 @@
 //
 // Запрос идёт со stream:true, ответ приходит как text/event-stream. Кусок
 // текста отдаётся наружу через Stream::onDelta, поэтому ответ появляется на
-// экране по мере генерации, а счётчик принятых символов двигает индикатор.
+// экране по мере генерации.
+//
+// Chunked-тело декодируется инкрементально (chunked::Decoder): сырьё
+// выбрасывается по мере разбора, память не растёт с длиной потока. Раньше
+// тело копилось целиком и декодировалось заново — поток обрезался.
 
 #include "llm.h"
 
@@ -18,6 +22,7 @@
 #include "config.h"
 #include "settings.h"
 #include "net.h"
+#include "pure/chunked.h"
 #include "pure/http_response.h"
 #include "pure/json_extract.h"
 #include "pure/llm_request.h"
@@ -76,8 +81,9 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
   }
   msgs.push_back({"user", userText.c_str()});
 
-  const std::string body = llmreq::buildChat(
-      kLlmModel, msgs, kLlmMaxTokens, true, kLlmReasoningEffort);
+  const std::string body =
+      llmreq::buildChat(kLlmModel, msgs, kLlmMaxTokens, true,
+                        kLlmReasoningEffort);
   if (body.empty()) {
     r.error = "не собрать запрос";
     return r;
@@ -117,121 +123,134 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
   }
 
   // --- чтение потока ---
-  // Декодируем chunked целиком и разбираем только новый хвост: ответ
-  // небольшой, поэтому O(n^2) на десятках килобайт не имеет значения.
-  std::string raw;
-  std::string headers;
-  size_t bodyOffset = 0;
+  std::string headBuf;       // копится, пока не найден конец заголовков
   bool headerDone = false;
   bool chunked = false;
   int httpCode = 0;
+  chunked::Decoder dec;
   sse::Parser parser;
-  size_t decodedDone = 0;
-  std::string decodedBody;
-  std::string content;
+  std::string content;       // накопленный ответ
+  std::string plainBody;     // тело ошибки или не-chunked фолбэк
   size_t activity = 0;
   bool done = false;
   uint32_t idleSince = millis();
 
-  // Первый токен модель может думать несколько секунд — не обрываем раньше.
-  constexpr uint32_t kIdleMs = 6000;
+  constexpr uint32_t kIdleMs = 6000;      // первый токен модель думает долго
+  constexpr size_t kMaxPlain = 4096;      // тело ошибки/фолбэка
+
+  // Разбирает уже накопленные SSE-события.
+  auto drain = [&]() {
+    std::string ev;
+    while (parser.next(ev)) {
+      if (ev == "[DONE]") {
+        done = true;
+        return;
+      }
+      std::string piece;
+      const int kind = deltaOf(ev, piece);
+      if (kind == 1 && !piece.empty()) {
+        content += piece;
+        activity += piece.size();
+        if (stream.onDelta) {
+          stream.onDelta(piece.c_str(), piece.size(), activity, stream.ctx);
+        }
+      } else if (kind == 2 && !piece.empty()) {
+        activity += piece.size();
+        if (stream.onDelta) stream.onDelta("", 0, activity, stream.ctx);
+      }
+    }
+  };
+
+  // Тело: декодируем chunked по мере прихода и отдаём парсеру.
+  auto feedBody = [&](const char* p, size_t n) {
+    if (chunked) {
+      dec.feed(p, n);
+      std::string piece;
+      while (dec.next(piece)) {
+        parser.feed(piece);
+        if (httpCode != 200 && plainBody.size() < kMaxPlain) {
+          plainBody += piece;
+        }
+      }
+    } else {
+      parser.feed(p, n);
+      if (plainBody.size() < kMaxPlain) plainBody.append(p, n);
+    }
+    drain();
+  };
+
+  auto process = [&](const char* p, size_t n) {
+    if (headerDone) {
+      feedBody(p, n);
+      return;
+    }
+    headBuf.append(p, n);
+    const size_t sep = headBuf.find("\r\n\r\n");
+    if (sep == std::string::npos) return;
+    const std::string headers = headBuf.substr(0, sep);
+    chunked = httpr::isChunked(headers);
+    httpCode = httpr::parseStatus(headers);
+    headerDone = true;
+    const std::string rest = headBuf.substr(sep + 4);
+    headBuf.clear();
+    if (!rest.empty()) feedBody(rest.data(), rest.size());
+  };
 
   while (!done) {
     if (millis() - t0 > kHttpReadMs) break;
 
-    bool got = false;
-    while (c.available() > 0) {
-      const int ch = c.read();
-      if (ch < 0) break;
-      raw += (char)ch;
-      got = true;
-      idleSince = millis();
-      if (raw.size() > kMaxLlmResponse + 4096) break;
-    }
-    if (raw.size() > kMaxLlmResponse + 4096) break;
-
-    if (!headerDone) {
-      const size_t sep = raw.find("\r\n\r\n");
-      if (sep != std::string::npos) {
-        headers = raw.substr(0, sep);
-        bodyOffset = sep + 4;
-        chunked = httpr::isChunked(headers);
-        httpCode = httpr::parseStatus(headers);
-        headerDone = true;
+    const int avail = c.available();
+    if (avail > 0) {
+      uint8_t tmp[256];
+      const int want = avail < (int)sizeof(tmp) ? avail : (int)sizeof(tmp);
+      const int n = c.read(tmp, want);
+      if (n > 0) {
+        idleSince = millis();
+        process((const char*)tmp, (size_t)n);
+        if (content.size() > kMaxAnswerChars) break;
+        continue;  // возможно, в сокете есть ещё
       }
     }
 
-    if (headerDone && raw.size() > bodyOffset) {
-      const std::string bodyRaw = raw.substr(bodyOffset);
-      decodedBody = chunked ? httpr::dechunk(bodyRaw) : bodyRaw;
-      if (decodedBody.size() > decodedDone) {
-        parser.feed(decodedBody.data() + decodedDone,
-                    decodedBody.size() - decodedDone);
-        decodedDone = decodedBody.size();
-      }
-      std::string ev;
-      while (parser.next(ev)) {
-        if (ev == "[DONE]") {
-          done = true;
-          break;
-        }
-        std::string piece;
-        const int kind = deltaOf(ev, piece);
-        if (kind == 1 && !piece.empty()) {
-          content += piece;
-          activity += piece.size();
-          if (stream.onDelta) {
-            stream.onDelta(piece.c_str(), piece.size(), activity, stream.ctx);
-          }
-        } else if (kind == 2 && !piece.empty()) {
-          activity += piece.size();
-          if (stream.onDelta) stream.onDelta("", 0, activity, stream.ctx);
-        }
-      }
-    }
-
-    if (done) break;
     if (!c.connected() && c.available() == 0) break;
-    if (!got && raw.size() > 0 && (millis() - idleSince) > kIdleMs) break;
+    if (headerDone && (millis() - idleSince) > kIdleMs) break;
     delay(5);
   }
   c.stop();
 
   if (!headerDone) {
     r.error = String("не разобран статус: ") +
-              String(raw.substr(0, 40).c_str());
+              String(headBuf.substr(0, 40).c_str());
     return r;
   }
   r.httpCode = httpCode;
-  Serial.printf("[llm] поток %u байт, ответ %u симв., за %u мс\n",
-                (unsigned)raw.size(), (unsigned)content.size(), millis() - t0);
+  Serial.printf("[llm] ответ %u симв. за %u мс\n", (unsigned)content.size(),
+                millis() - t0);
 
   if (r.httpCode != 200) {
-    // Тело ошибки — обычный JSON, не SSE.
-    Serial.printf("[llm] тело ошибки: %s\n", decodedBody.c_str());
+    Serial.printf("[llm] тело ошибки: %s\n", plainBody.c_str());
     r.error = String("HTTP ") + r.httpCode + ": " +
-              String(decodedBody.substr(0, 200).c_str());
+              String(plainBody.substr(0, 200).c_str());
     return r;
   }
 
   if (content.empty()) {
     // Сервер мог ответить не потоком — пробуем разобрать как обычный JSON.
     std::string out;
-    if (jsonx::extractPath(decodedBody.c_str(), "choices/[0]/message/content",
+    if (jsonx::extractPath(plainBody.c_str(), "choices/[0]/message/content",
                            out) &&
         !out.empty()) {
       content = out;
     } else {
       std::string err;
-      if (jsonx::extractPath(decodedBody.c_str(), "error/message", err)) {
+      if (jsonx::extractPath(plainBody.c_str(), "error/message", err)) {
         r.error = String("модель: ") + String(err.substr(0, 200).c_str());
         return r;
       }
       std::string fin;
-      jsonx::extractPath(decodedBody.c_str(), "choices/[0]/finish_reason", fin);
+      jsonx::extractPath(plainBody.c_str(), "choices/[0]/finish_reason", fin);
       Serial.printf("[llm] пустой content, finish_reason=%s\n",
                     fin.empty() ? "(нет)" : fin.c_str());
-      Serial.printf("[llm] тело ответа: %s\n", decodedBody.c_str());
       r.error = "модель вернула пустой ответ";
       return r;
     }
