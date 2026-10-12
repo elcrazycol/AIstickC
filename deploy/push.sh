@@ -27,12 +27,13 @@ IP="$(dig +short "$DOMAIN" A 2>/dev/null | tail -1 || true)"
 if [ -z "$IP" ]; then
   IP="$(getent hosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | head -1 || true)"
 fi
-echo "  $DOMAIN -> ${IP:-не разрешается}"
-if [ "$IP" != "your.server" ]; then
-  echo "  ВНИМАНИЕ: домен указывает не на your.server." >&2
+if [ -z "$IP" ]; then
+  echo "  ВНИМАНИЕ: $DOMAIN не разрешается в IP." >&2
   echo "  Сертификат Let's Encrypt не подойдёт, и стик не сможет" >&2
   echo "  подключиться по этому имени. Продолжить? Ctrl-C для отмены." >&2
   sleep 5
+else
+  echo "  $DOMAIN -> $IP"
 fi
 
 echo "=== Копирование файлов ==="
