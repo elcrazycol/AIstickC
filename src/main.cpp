@@ -7,8 +7,9 @@
 //   BtnB (удержать) — очистка экрана и памяти диалога
 //
 // Состояния: Idle → Recording → Sending → Recognizing → Streaming → Showing.
-// Экран один: полоса состояния, тело (точки или текст) и радужная полоска
-// прогресса внизу. Всё рисование — в ui.cpp.
+// Экран один: полоса состояния и тело. Пока идёт работа — три перетекающие
+// точки (анимирует отдельная задача), затем по мере прихода печатается текст.
+// Всё рисование — в ui.cpp.
 
 #include <Arduino.h>
 #include <M5Unified.h>
@@ -50,10 +51,9 @@ chat::History g_history(kChatMaxTurns);
 uint8_t g_wave[ui::kWaveBars] = {0};
 size_t  g_waveN = 0;
 
-uint32_t g_phaseStart = 0;   // начало текущей фазы
-uint32_t g_lastDraw = 0;     // троттлинг перерисовок
+uint32_t g_lastDraw = 0;     // троттлинг перерисовок текста
 String   g_stream;           // накопленный текст ответа
-size_t   g_streamTarget = kStreamTargetChars;
+bool     g_textStarted = false;
 
 // Ширина любого символа в моноширинном шрифте — константа.
 int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
@@ -84,9 +84,10 @@ uint8_t peakOf(const int16_t* s, size_t n) {
   return (uint8_t)a;
 }
 
-// Экран ответа: текст + индикатор страниц. Полоски прогресса на готовом
-// ответе нет.
+// Экран ответа: текст + индикатор страниц.
 void drawAnswer(size_t page) {
+  ui::dotsStop();
+  ui::answerReset();
   ui::answerText(g_lines, page * ui::kBodyLines, g_color);
   ui::pageIndicator(page, textwrap::pageCount(g_lines.size(), ui::kBodyLines));
 }
@@ -100,62 +101,35 @@ void showError(const char* text) {
 }
 
 void showIdle() {
+  ui::dotsStop();
   g_state = State::Idle;
   ui::idle(g_history.turnCount());
 }
 
-// Тело «ожидания» с точками и полоской нужного процента. Полный сброс
-// экрана делает вызывающий при входе в фазу (answerReset).
-void showWaiting(const char* phase, int percent, uint32_t now) {
-  char chip[24];
-  snprintf(chip, sizeof(chip), "%s %d%%", phase, percent);
-  ui::answerDots(now);
-  ui::bottomBar(percent, chip);
+// Начало фазы ожидания: чистый экран и запущенная анимация точек.
+void startWaiting() {
+  g_textStarted = false;
+  g_lastDraw = 0;
+  ui::answerReset();
+  ui::dotsStart();
 }
 
-// --- обратные вызовы индикатора ---
+// Кусок ответа пришёл: копим текст и печатаем его без мерцания.
+void onDelta(const char* piece, size_t len, size_t, void*) {
+  if (len == 0) return;  // только reasoning — точки продолжают идти
 
-void onUpload(size_t sent, size_t total, void*) {
+  g_stream.concat(piece);
   const uint32_t now = millis();
-  if (sent < total && now - g_lastDraw < 40) return;
-  g_lastDraw = now;
-  const int pct = total ? (int)(40ULL * sent / total) : 0;
-  showWaiting("Отправка", pct, now);
-}
-
-// Прокси молчит, пока Groq распознаёт: анимация по времени.
-void onSttTick(void*) {
-  const uint32_t now = millis();
-  if (now - g_lastDraw < 40) return;
-  g_lastDraw = now;
-  int pct = 42 + (int)((now - g_phaseStart) / 60);
-  if (pct > 54) pct = 54;
-  showWaiting("Распознаю", pct, now);
-}
-
-// Кусок ответа пришёл: копим текст и обновляем экран.
-void onDelta(const char* piece, size_t len, size_t activity, void*) {
-  if (len > 0) g_stream.concat(piece);
-
-  const uint32_t now = millis();
-  if (now - g_lastDraw < 70) return;
+  if (now - g_lastDraw < 50) return;
   g_lastDraw = now;
 
-  const size_t a = activity < g_streamTarget ? activity : g_streamTarget;
-  int pct = 58 + (int)(42ULL * a / g_streamTarget);
-  if (pct > 99) pct = 99;
-
-  char chip[24];
-  snprintf(chip, sizeof(chip), "Отвечаю %d%%", pct);
-  if (len > 0) {
-    wrapInto(g_stream.c_str(), g_lines);
-    const size_t from =
-        g_lines.size() > ui::kBodyLines ? g_lines.size() - ui::kBodyLines : 0;
-    ui::answerText(g_lines, from, kWhite);
-  } else {
-    ui::answerDots(now);  // пришёл только reasoning — держим анимацию
+  wrapInto(g_stream.c_str(), g_lines);
+  if (!g_textStarted) {
+    g_textStarted = true;
+    ui::dotsStop();
+    ui::answerReset();  // стереть точки перед первым текстом
   }
-  ui::bottomBar(pct, chip);
+  ui::answerText(g_lines, 0, kWhite);
 }
 
 // Захват audioBytes байт в PSRAM. Возвращает число записанных байт.
@@ -218,8 +192,7 @@ size_t record(size_t audioBytes) {
 // Полный цикл: запись → STT → LLM → вывод.
 void runQuestion() {
   if (WiFi.status() != WL_CONNECTED) {
-    ui::answerReset();
-    showWaiting("Wi-Fi", 0, millis());
+    startWaiting();
     if (!net::connectWifi(kWifiTimeoutMs)) {
       showError(net::lastError());
       delay(2000);
@@ -249,17 +222,10 @@ void runQuestion() {
   const uint8_t* pcm = g_audio + wav::headerSize();
 
   g_state = State::Sending;
-  g_phaseStart = millis();
-  g_lastDraw = 0;
-  ui::answerReset();
-  showWaiting("Отправка", 0, millis());
-
-  stt::Hooks hooks;
-  hooks.onUpload = onUpload;
-  hooks.onTick = onSttTick;
+  startWaiting();
 
   g_state = State::Recognizing;
-  stt::Result s = stt::transcribe(pcm, got, hooks);
+  stt::Result s = stt::transcribe(pcm, got);
   if (!s.ok) {
     Serial.printf("[main] ошибка STT: %s\n", s.error.c_str());
     showError(s.error.c_str());
@@ -270,9 +236,7 @@ void runQuestion() {
   // Вопрос распознан — спрашиваем модель потоком.
   g_state = State::Streaming;
   g_stream = "";
-  g_lastDraw = 0;
-  ui::answerReset();
-  showWaiting("Отвечаю", 58, millis());
+  startWaiting();
 
   llm::Stream st;
   st.onDelta = onDelta;
@@ -332,8 +296,7 @@ void setup() {
   }
   M5.Mic.end();
 
-  ui::answerReset();
-  showWaiting("Wi-Fi", 0, millis());
+  startWaiting();
   if (!net::connectWifi(kWifiTimeoutMs)) {
     Serial.printf("[main] %s\n", net::lastError());
     showError(net::lastError());
