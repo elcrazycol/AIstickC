@@ -25,6 +25,7 @@ constexpr int kFirstBase = 26;  // верх первой строки тела
 
 SemaphoreHandle_t s_lock = nullptr;   // защита дисплея между задачами
 volatile bool s_dotsOn = false;
+uint8_t s_brightness = 255;           // исходная яркость подсветки
 
 // Доступ к дисплею только под мьютексом.
 struct Guard {
@@ -190,6 +191,7 @@ void dotsTask(void*) {
 
 void begin() {
   useFontLocked();
+  s_brightness = M5.Display.getBrightness();
   s_lock = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(dotsTask, "ui_dots", 4096, nullptr, 1, nullptr, 0);
 }
@@ -337,6 +339,16 @@ void holdProgress(int percent) {
   M5.Display.fillRect(0, y, kScreenW, h, kBlack);
   const int w = kScreenW * percent / 100;
   if (w > 0) M5.Display.fillRect(0, y, w, h, kYellow);
+}
+
+void screenOff() {
+  Guard g;
+  M5.Display.setBrightness(0);
+}
+
+void screenOn() {
+  Guard g;
+  M5.Display.setBrightness(s_brightness);
 }
 
 }  // namespace ui

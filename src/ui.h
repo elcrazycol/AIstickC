@@ -66,4 +66,8 @@ void notice(const char* text);
 // Индикатор удержания кнопки: тонкая полоска внизу экрана.
 void holdProgress(int percent);
 
+// Погасить/вернуть подсветку (пиксели не трогаем — картинка сохраняется).
+void screenOff();
+void screenOn();
+
 }  // namespace ui

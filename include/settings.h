@@ -23,6 +23,14 @@ constexpr int      kScreenRotation  = 1;       // ландшафт: 1 или 3
 constexpr int      kScreenW         = 240;
 constexpr int      kScreenH         = 135;
 
+// --- Энергосбережение ---
+// Экран гаснет по бездействию и мгновенно возвращается по любой кнопке.
+constexpr uint32_t kScreenOffMs = 20000;
+// Wi-Fi выключается позже; следующий вопрос переподключится сам.
+constexpr uint32_t kWifiOffMs   = 90000;
+// Глубокий сон после долгого простоя. Будит большая кнопка (BtnA).
+constexpr uint32_t kDeepSleepMs = 3600000;
+
 // --- Прочее ---
 constexpr uint32_t kSerialBaud      = 115200;
 

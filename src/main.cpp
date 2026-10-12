@@ -14,6 +14,7 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <Preferences.h>
+#include <esp_sleep.h>
 
 #include <string>
 #include <vector>
@@ -64,6 +65,50 @@ bool     g_textStarted = false;
 uint32_t g_btnStart = 0;
 bool     g_btnArmed = false;  // нажатие ещё не отработано
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
+
+// --- Энергосбережение ---
+uint32_t g_lastActivity = 0;
+bool     g_screenOff = false;
+bool     g_wifiOff = false;
+
+// Любое действие пользователя: сбрасывает таймеры простоя и будит экран.
+void markActivity() {
+  g_lastActivity = millis();
+  if (g_screenOff) {
+    g_screenOff = false;
+    ui::screenOn();
+  }
+}
+
+// Простой: сначала гаснет экран, потом Wi-Fi, потом глубокий сон.
+void pollIdlePower() {
+  if (g_state != State::Idle && g_state != State::Showing) return;
+  const uint32_t idle = millis() - g_lastActivity;
+
+  if (!g_screenOff && idle >= kScreenOffMs) {
+    g_screenOff = true;
+    ui::dotsStop();
+    ui::screenOff();
+    Serial.println("[main] простой: экран погашен");
+  }
+
+  if (!g_wifiOff && idle >= kWifiOffMs) {
+    g_wifiOff = true;
+    Serial.println("[main] простой: Wi-Fi выключен");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+  }
+
+  if (idle >= kDeepSleepMs) {
+    Serial.println("[main] простой: глубокий сон");
+    ui::screenOff();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    // Будит большая кнопка (BtnA, GPIO37) — по низкому уровню.
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, 0);
+    esp_deep_sleep_start();
+  }
+}
 
 // Ширина любого символа в моноширинном шрифте — константа.
 int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
@@ -209,6 +254,7 @@ void runQuestion() {
       showIdle();
       return;
     }
+    g_wifiOff = false;  // Wi-Fi снова поднят
   }
 
   g_state = State::Recording;
@@ -350,6 +396,13 @@ void setup() {
   M5.begin(cfg);
   M5.Display.setRotation(kScreenRotation);
   ui::begin();
+  g_lastActivity = millis();
+
+  // Причина пробуждения (если вышли из глубокого сна).
+  const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  if (cause != ESP_SLEEP_WAKEUP_UNDEFINED) {
+    Serial.printf("[main] пробуждение, причина: %d\n", (int)cause);
+  }
 
   // Счётчик сообщений переживает выключение.
   g_prefs.begin("aistick", false);
@@ -389,6 +442,12 @@ void setup() {
 void loop() {
   M5.update();
 
+  // Любое нажатие — активность: будит экран и сбрасывает таймеры простоя.
+  if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed() ||
+      M5.BtnPWR.wasPressed()) {
+    markActivity();
+  }
+
   // Боковая кнопка: тап — назад, удержание — сброс сессии.
   pollSideButton();
   // Верхняя кнопка: тап — вперёд.
@@ -397,7 +456,10 @@ void loop() {
   if ((g_state == State::Idle || g_state == State::Showing) &&
       M5.BtnA.wasPressed()) {
     runQuestion();
+    markActivity();  // вопрос занял время — таймер простоя с нуля
   }
+
+  pollIdlePower();
 
   delay(20);
 }
