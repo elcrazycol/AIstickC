@@ -81,6 +81,8 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
   }
   msgs.push_back({"user", userText.c_str()});
 
+  Serial.printf("[llm] сообщений в запросе: %u\n", (unsigned)msgs.size());
+
   const std::string body =
       llmreq::buildChat(kLlmModel, msgs, kLlmMaxTokens, true,
                         kLlmReasoningEffort);

@@ -276,31 +276,40 @@ void runQuestion() {
   }
 }
 
+// Очистка сессии с уведомлением на экране.
+void clearSession() {
+  g_history.clear();
+  Serial.println("[main] сессия сброшена");
+  ui::notice("История разговора очищена");
+  delay(1500);
+  showIdle();
+}
+
 // Удержание верхней кнопки: 3 с — главный экран, 5 с — сброс сессии.
 void pollPowerButton() {
   if (M5.BtnPWR.wasPressed()) {
     g_pwrStart = millis();
     g_pwrStage = 0;
+    Serial.println("[main] BtnPWR нажата");
   }
 
   if (M5.BtnPWR.isPressed()) {
     const uint32_t held = millis() - g_pwrStart;
     if (g_pwrStage == 0 && held >= kPwrIdleMs) {
       g_pwrStage = 1;
-      Serial.println("[main] верхняя 3 с: на главный экран");
+      Serial.printf("[main] верхняя %u мс: на главный экран\n",
+                    (unsigned)held);
       showIdle();
     } else if (g_pwrStage == 1 && held >= kPwrClearMs) {
       g_pwrStage = 2;
-      g_history.clear();
-      Serial.println("[main] верхняя 5 с: сессия сброшена");
-      ui::notice("История разговора очищена");
-      delay(1000);
-      showIdle();
+      Serial.printf("[main] верхняя %u мс: сброс сессии\n", (unsigned)held);
+      clearSession();
     }
   }
 
   if (M5.BtnPWR.wasReleased()) {
     const uint32_t held = millis() - g_pwrStart;
+    Serial.printf("[main] BtnPWR отпущена через %u мс\n", (unsigned)held);
     if (held < kPwrIdleMs) {
       // Короткий тап — листание назад.
       const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
@@ -373,8 +382,7 @@ void loop() {
   // BtnB: тап — следующая страница (закольцовано),
   // долгое удержание — очистка экрана и памяти диалога.
   if (M5.BtnB.wasReleasedAfterHold()) {
-    g_history.clear();
-    showIdle();
+    clearSession();
   } else if (M5.BtnB.wasClicked()) {
     const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
     if (g_state == State::Showing && total > 1) {
