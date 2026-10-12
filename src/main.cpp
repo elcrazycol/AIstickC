@@ -2,7 +2,8 @@
 //
 // Управление:
 //   BtnA (зажать)  — запись, отпусти — отправить
-//   BtnB (тап)     — следующая страница (закольцовано)
+//   BtnB (тап)     — предыдущая страница
+//   BtnPWR (тап)   — следующая страница (верхняя кнопка)
 //   BtnB (3 с)     — сброс сессии (память + главный экран) с панелью
 //
 // Состояния: Idle → Recording → Sending → Recognizing → Streaming → Showing.
@@ -63,6 +64,7 @@ bool     g_textStarted = false;
 uint32_t g_btnStart = 0;
 bool     g_btnArmed = false;  // нажатие ещё не отработано
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
+uint32_t g_lastHoldLog = 0;
 
 // Ширина любого символа в моноширинном шрифте — константа.
 int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
@@ -309,15 +311,19 @@ void pollSideButton() {
       g_lastDraw = millis();
       ui::holdProgress((int)(100ULL * held / kClearHoldMs));
     }
+    if (millis() - g_lastHoldLog >= 500) {
+      g_lastHoldLog = millis();
+      Serial.printf("[main] держу %u мс\n", (unsigned)held);
+    }
   }
 
   if (M5.BtnB.wasReleased()) {
     const uint32_t held = millis() - g_btnStart;
     if (g_btnArmed && held < kClearHoldMs) {
-      // Короткий тап — листание вперёд, закольцованно.
+      // Короткий тап — листание назад, закольцованно.
       const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
       if (g_state == State::Showing && total > 1) {
-        g_page = (g_page + 1) % total;
+        g_page = (g_page + total - 1) % total;
         Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
                       (unsigned)total);
         drawAnswer(g_page);
@@ -325,6 +331,19 @@ void pollSideButton() {
     }
     g_btnArmed = false;
     ui::holdProgress(0);  // убрать полоску удержания
+  }
+}
+
+// Верхняя кнопка: тап — листание вперёд.
+void pollPowerTap() {
+  if (g_panelShownAt != 0) return;  // панель сброса важнее
+  if (!M5.BtnPWR.wasClicked()) return;
+  const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
+  if (g_state == State::Showing && total > 1) {
+    g_page = (g_page + 1) % total;
+    Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
+                  (unsigned)total);
+    drawAnswer(g_page);
   }
 }
 
@@ -377,8 +396,10 @@ void setup() {
 void loop() {
   M5.update();
 
-  // Боковая кнопка: тап — листание вперёд, удержание — главный/сброс.
+  // Боковая кнопка: тап — назад, удержание — сброс сессии.
   pollSideButton();
+  // Верхняя кнопка: тап — вперёд.
+  pollPowerTap();
 
   if ((g_state == State::Idle || g_state == State::Showing) &&
       M5.BtnA.wasPressed()) {
