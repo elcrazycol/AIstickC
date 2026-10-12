@@ -41,9 +41,6 @@ What makes it more than a demo:
 |---|---|---|
 | ![Recording](docs/images/demo-recording.gif) | ![Waiting](docs/images/demo-waiting.gif) | ![Typing](docs/images/demo-typing.gif) |
 
-Every image comes from `tools/mock_screen.py`, which draws the screens with the
-same generated font and picture that go into the firmware. No camera involved.
-
 Still screens: [idle](docs/images/screen-idle.png),
 [recording](docs/images/screen-recording.png),
 [waiting](docs/images/screen-waiting.png),

@@ -40,9 +40,6 @@ Wi-Fi и два API.
 |---|---|---|
 | ![Запись](docs/images/demo-recording.gif) | ![Ожидание](docs/images/demo-waiting.gif) | ![Печать](docs/images/demo-typing.gif) |
 
-Все картинки — из `tools/mock_screen.py`, который рисует экраны тем же
-сгенерированным шрифтом и картинкой, что идут в прошивку. Камера не нужна.
-
 Статичные экраны: [главный](docs/images/screen-idle.png),
 [запись](docs/images/screen-recording.png),
 [ожидание](docs/images/screen-waiting.png),
