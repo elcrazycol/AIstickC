@@ -53,7 +53,18 @@ void showWrapped(const char* text, int color) {
 }
 
 // Захват audioBytes байт в PSRAM. Возвращает число записанных байт.
+//
+// Микрофон включается только на время записи и выключается сразу после:
+// его задача I2S и DMA-прерывания конкурируют с TLS-отправкой за CPU,
+// из-за чего отправка падала до ~19 КБ/с.
 size_t record(size_t audioBytes) {
+  if (!M5.Mic.isRunning()) {
+    if (!M5.Mic.begin()) {
+      Serial.println("[main] микрофон не стартовал");
+      return 0;
+    }
+  }
+
   const size_t totalSamples = audioBytes / 2;
   const size_t chunkSamples = sizeof(g_chunk) / 2;
 
@@ -82,6 +93,8 @@ size_t record(size_t audioBytes) {
     M5.update();
     if (!M5.BtnA.isPressed()) break;
   }
+
+  M5.Mic.end();
   return done * 2;
 }
 
@@ -104,10 +117,13 @@ void setup() {
     while (true) delay(1000);
   }
 
+  // Микрофон включается на время записи и выключается после неё
+  // (см. record), поэтому здесь только проверяем, что он вообще есть.
   if (!M5.Mic.begin()) {
     showStatus("Микрофон не стартовал", kRed);
     while (true) delay(1000);
   }
+  M5.Mic.end();
 
   showStatus("Wi-Fi...", kYellow);
   if (!net::connectWifi(kWifiTimeoutMs)) {
@@ -115,8 +131,7 @@ void setup() {
     Serial.printf("[main] %s\n", net::lastError());
     return;  // не блокируемся: BtnA попробует снова
   }
-  Serial.printf("[main] Wi-Fi ок, IP %s\n",
-                WiFi.localIP().toString().c_str());
+  // Строку про Wi-Fi печатает net::connectWifi (там же RSSI).
   showStatus("Ready. Держи A", kGreen);
 }
 
@@ -155,12 +170,15 @@ void loop() {
       return;
     }
 
-    wav::writeHeader(g_audio, (uint32_t)got, kSampleRate);
+    // SpeechKit принимает сырой LPCM без WAV-заголовка, поэтому
+    // отправляем данные сразу за ним. Ограничения сервиса: 1 МБ и 30 с —
+    // наши 8 с (256 КБ) проходят с запасом.
+    const uint8_t* pcm = g_audio + wav::headerSize();
 
     g_state = State::Sending;
     showStatus("Sending...", kYellow);
 
-    stt::Result r = stt::transcribe(g_audio, wav::totalSize(got));
+    stt::Result r = stt::transcribe(pcm, got);
     if (r.ok) {
       g_shown = r.text;
       showWrapped(g_shown.c_str(), kWhite);

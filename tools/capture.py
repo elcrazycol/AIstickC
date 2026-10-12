@@ -35,12 +35,21 @@ def write_wav(path, pcm, sample_rate):
         f.write(pcm)
 
 
-def reset_board(ser):
-    """Импульс на DTR/RTS перезагружает ESP32 в прошивку."""
-    ser.setDTR(False)
-    ser.setRTS(True)
-    time.sleep(0.15)
-    ser.setRTS(False)
+def reset_board(ser, into_app=True):
+    """Перезагрузка ESP32.
+
+    Последовательность взята из esptool (reset.py, hard_reset): DTR=False
+    держит IO0 в HIGH, короткий импульс RTS в LOW перезагружает чип.
+    При into_app=False IO0 опускается — это режим загрузчика, нужен только
+    для прошивки, не для обычного запуска.
+
+    Важно: если оставить DTR в True на момент сброса, плата уйдёт в
+    DOWNLOAD_BOOT и «зависнет» в ожидании прошивки.
+    """
+    ser.setDTR(False if into_app else True)   # IO0: HIGH для запуска
+    ser.setRTS(True)                          # EN -> LOW, чип в сбросе
+    time.sleep(0.1)
+    ser.setRTS(False)                         # EN -> HIGH, выход из сброса
     time.sleep(0.05)
 
 
@@ -54,13 +63,32 @@ def lines_from_serial(port, baud):
             try:
                 raw = ser.readline()
             except Exception as exc:
-                print(f"[capture] ошибка чтения: {exc}", file=sys.stderr)
-                return
+                # Разрыв чтения — не повод падать: pyserial иногда теряет
+                # готовность после сброса. Повторяем, пока не надоест.
+                print(f"[capture] разрыв чтения: {exc}", file=sys.stderr)
+                time.sleep(0.5)
+                continue
             if not raw:
                 continue
             yield raw.decode("utf-8", errors="replace")
     finally:
+        # Возвращаем плату в рабочий режим, а не в загрузчик.
+        try:
+            reset_board(ser)
+        except Exception:
+            pass
         ser.close()
+
+
+def monitor(lines):
+    """Просто печатает всё, что приходит с порта. Для отладки."""
+    try:
+        for raw in lines:
+            sys.stdout.write(raw)
+            sys.stdout.flush()
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 def collect(lines, out_path):
@@ -133,12 +161,17 @@ def main():
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--stdin", action="store_true",
                     help="читать поток со stdin вместо порта (для тестов)")
+    ap.add_argument("--monitor", action="store_true",
+                    help="просто печатать лог устройства, без сборки WAV")
     args = ap.parse_args()
 
     if args.stdin:
         return collect(sys.stdin, args.out)
     try:
-        return collect(lines_from_serial(args.port, args.baud), args.out)
+        lines = lines_from_serial(args.port, args.baud)
+        if args.monitor:
+            return monitor(lines)
+        return collect(lines, args.out)
     except ImportError:
         print("[capture] ОШИБКА: нет pyserial. Поставь: pip install pyserial",
               file=sys.stderr)

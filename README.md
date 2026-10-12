@@ -4,6 +4,19 @@
 Зажал кнопку → записал → распознал (Groq Whisper) → ответ (DeepSeek через
 OpenCode Go) → прочитал на экране.
 
+## Как устроено распознавание
+
+`api.groq.com` **недоступен из России напрямую** (403, гео-блок). Поэтому
+стик ходит к своему прокси на VPS, а тот — в Groq:
+
+```
+стик ──HTTPS──> VPS (deploy/stt-proxy.py) ──HTTPS──> Groq Whisper
+                    └── ключ Groq живёт здесь, в прошивке его нет
+```
+
+Стик отправляет сырой PCM (16 бит, LE, моно, 16 кГц); WAV-заголовок и
+multipart собирает сервер. Прошивка от этого только проще.
+
 ## Установка инструментов
 
 PlatformIO Core на этой машине не установлен:
@@ -18,7 +31,21 @@ uv tool install platformio
 cp include/config.h.example include/config.h
 ```
 
-Заполни `include/config.h`: ключ Groq, ключ OpenCode Go, SSID и пароль Wi-Fi.
+Развёртывание прокси описано в [deploy/README.md](deploy/README.md), там же
+одна команда для заполнения `config.h`:
+
+```bash
+bash deploy/fill-config.sh
+```
+
+Она забирает токен с сервера и прописывает `PROXY_HOST`, `PROXY_PORT`,
+`PROXY_PATH`, `PROXY_TOKEN`. Ключ Groq в прошивку не попадает вообще.
+
+Остальное в `config.h`:
+
+- `OPENCODE_API_KEY` — ключ подписки OpenCode Go (милестоун 2)
+- `WIFI_SSID`, `WIFI_PASS` — сеть **2.4 ГГц**, ESP32 не видит 5 ГГц
+
 Файл в `.gitignore` и в репозиторий не попадает.
 
 ## Милестоун 0: проверить микрофон и PSRAM
@@ -45,6 +72,15 @@ afplay test.wav
     [probe] Запись: 3.0 с
     [probe] Записано 96000 байт за ~3100 мс
     [capture] Готово: test.wav (96000 байт, 3.0 с)
+
+## Смотреть лог устройства
+
+```bash
+python3 tools/capture.py --monitor
+```
+
+Скрипт сам открывает порт и перезагружает плату. В конце возвращает её в
+рабочий режим, а не в загрузчик.
 
 ## Тесты чистой логики
 

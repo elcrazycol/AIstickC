@@ -46,6 +46,14 @@ bool connectWifi(uint32_t timeoutMs) {
     delay(100);
   }
 
+  // Уровень сигнала: если он слабый, отправка аудио будет медленной.
+  const int rssi = WiFi.RSSI();
+  Serial.printf("[net] Wi-Fi ок, IP %s, RSSI %d dBm\n",
+                WiFi.localIP().toString().c_str(), rssi);
+  if (rssi < -80) {
+    Serial.println("[net] ВНИМАНИЕ: слабый сигнал, отправка будет медленной");
+  }
+
   snprintf(g_error, sizeof(g_error), "ok");
   return true;
 }

@@ -24,16 +24,19 @@ constexpr int      kScreenH         = 135;
 // --- Прочее ---
 constexpr uint32_t kSerialBaud      = 115200;
 
-// --- STT (Groq) ---
-constexpr const char* kGroqHost     = "api.groq.com";
-constexpr int         kGroqPort     = 443;
-constexpr const char* kGroqPath     = "/openai/v1/audio/transcriptions";
-constexpr const char* kSttModel     = "whisper-large-v3-turbo";
-constexpr const char* kSttLang      = "ru";
-constexpr const char* kSttBoundary  = "----aistickBoundary7f3a";
+// --- STT через свой прокси на VPS ---
+// Groq недоступен из России напрямую (403, гео-блок), поэтому стик ходит
+// к своему прокси, а тот — в Groq Whisper. Тело запроса — сырой PCM
+// (16 бит, little-endian, моно, 16 кГц), multipart собирает сервер.
+// Хост, порт, путь и токен — в config.h: они зависят от развёртывания.
+constexpr const char* kSttContentType = "application/octet-stream";
+// Минимум, который принимает прокси: 50 мс.
+constexpr size_t      kSttMinBytes    = 1600;
 
 // --- Таймауты сети, мс ---
 constexpr uint32_t kWifiTimeoutMs   = 15000;
 constexpr uint32_t kHttpConnectMs   = 5000;
-constexpr uint32_t kHttpReadMs      = 15000;
+// Отправка с устройства идёт ~16 КБ/с, поэтому на 8 секунд записи
+// (256 КБ) нужно ~16 с. Таймаут с запасом на отправку плюс обработку.
+constexpr uint32_t kHttpReadMs      = 40000;
 constexpr size_t   kMaxSttResponse  = 8192;   // больше ответ не бывает

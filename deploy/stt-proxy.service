@@ -1,0 +1,39 @@
+# Юнит systemd для прокси распознавания.
+#
+# Установку делает deploy/push.sh (он же копирует файлы).
+#
+# Секреты — в /etc/stt-proxy.env, права 600, владелец root.
+# Существующие сервисы (в том числе VPN на портах 443/2222) этот юнит
+# не трогает: он только добавляет новый процесс на отдельном порту.
+
+[Unit]
+Description=aistick STT proxy (Groq Whisper)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sttproxy
+Group=sttproxy
+EnvironmentFile=/etc/stt-proxy.env
+ExecStart=/usr/bin/python3 /opt/stt-proxy/stt-proxy.py
+Restart=on-failure
+RestartSec=5
+
+# Ограничения: сервису нужен только исходящий HTTPS.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# Сертификат и ключ лежат в /etc/stt-proxy, читаются группой sttproxy.
+ReadOnlyPaths=/opt/stt-proxy /etc/stt-proxy
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stt-proxy
+
+[Install]
+WantedBy=multi-user.target

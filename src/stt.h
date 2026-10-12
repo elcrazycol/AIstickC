@@ -1,4 +1,4 @@
-// Отправка WAV в Groq Whisper и разбор ответа.
+// Распознавание речи через Yandex SpeechKit.
 #pragma once
 
 #include <Arduino.h>
@@ -12,7 +12,8 @@ struct Result {
   int httpCode = 0; // код ответа, если дошло до него
 };
 
-// wav — буфер с WAV целиком (заголовок + аудио) в PSRAM.
-Result transcribe(const uint8_t* wav, size_t wavLen);
+// pcm — сырой LPCM: 16 бит, little-endian, знаковый, моно, 16 кГц.
+// WAV-заголовок НЕ нужен, SpeechKit его не принимает.
+Result transcribe(const uint8_t* pcm, size_t pcmLen);
 
 }  // namespace stt
