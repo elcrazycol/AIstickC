@@ -46,8 +46,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class Font:
     def __init__(self, path):
         src = open(path).read()
-        self.bits = [int(x) for x in re.findall(
-            r"-?\d+", re.search(r"_Bitmaps\[\] = \{(.*?)\n\};", src, re.S).group(1))]
+        # Байты в заголовке записаны hex-литералами — парсим именно их,
+        # иначе "0x18" разбирается как 0 и 18 и глифы рассыпаются.
+        self.bits = [int(x, 16) for x in re.findall(
+            r"0x([0-9A-Fa-f]{2})",
+            re.search(r"_Bitmaps\[\] = \{(.*?)\n\};", src, re.S).group(1))]
         self.glyphs = []
         for line in re.search(r"_Glyphs\[\] = \{(.*?)\n\};", src, re.S).group(1).splitlines():
             n = [int(x) for x in re.findall(r"-?\d+", line)]
