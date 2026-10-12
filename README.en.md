@@ -234,6 +234,14 @@ dialogue memory, streaming, idle-screen picture and battery, power saving.
 - A distinct "Did not catch that" message for empty recognition.
 - Auto-return to IDLE 5 s after an error.
 - Cancelling a recording with a button.
+- **Plugin system.** A plugin is a small file (in LittleFS, or compiled into the
+  firmware) with a trigger phrase and an action. Recognized text is matched
+  against triggers first, and on a hit the stick runs the action instead of the
+  LLM request (or alongside it). Speech recognition is approximate, so matching
+  has to be fuzzy — keywords with normalization, not exact equality. Actions:
+  drive a GPIO (say G26 — a lamp), print something on the screen, fire an HTTP
+  request (smart home, a webhook, anything). Drop in a file and you have a
+  plugin.
 
 **Not verified on hardware:** waking from deep sleep and maximum-length (15 s)
 recording — both were exercised only at smaller scales.
