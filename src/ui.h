@@ -60,4 +60,7 @@ void answerText(const std::vector<std::string>& lines, size_t from, int color);
 // Индикатор страниц внизу справа.
 void pageIndicator(size_t page, size_t total);
 
+// Панель с коротким уведомлением по центру (например, о сбросе истории).
+void notice(const char* text);
+
 }  // namespace ui

@@ -293,6 +293,8 @@ void pollPowerButton() {
       g_pwrStage = 2;
       g_history.clear();
       Serial.println("[main] верхняя 5 с: сессия сброшена");
+      ui::notice("История разговора очищена");
+      delay(1000);
       showIdle();
     }
   }

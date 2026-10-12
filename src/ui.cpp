@@ -309,4 +309,23 @@ void pageIndicator(size_t page, size_t total) {
   M5.Display.print(ind);
 }
 
+void notice(const char* text) {
+  Guard g;
+  M5.Display.fillScreen(kBlack);
+  statusBarLocked();
+  useFontLocked();
+
+  const int tw = M5.Display.textWidth(text);
+  const int bw = tw + 12;
+  const int bx = (kScreenW - bw) / 2;
+  const int by = 52;
+  constexpr int bh = 24;
+
+  M5.Display.fillRect(bx, by, bw, bh, 0x18E3);  // тёмная подложка
+  M5.Display.drawRect(bx, by, bw, bh, kGray);
+  M5.Display.setTextColor(kWhite, 0x18E3);
+  M5.Display.setCursor(bx + 6, by + bh - 9);
+  M5.Display.print(text);
+}
+
 }  // namespace ui
