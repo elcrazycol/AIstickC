@@ -1,9 +1,9 @@
 // Карманный голосовой ассистент: запись → Whisper → DeepSeek → экран.
 //
 // Управление:
-//   BtnA (зажать) — запись, отпусти — отправить
-//   BtnA с экрана ответа — новый вопрос
-//   BtnB (тап)    — следующая страница, на последней — очистка
+//   BtnA (зажать)   — запись, отпусти — отправить
+//   BtnB (тап)      — следующая страница (закольцовано)
+//   BtnPWR (тап)    — предыдущая страница (верхняя кнопка)
 //   BtnB (удержать) — очистка экрана и памяти диалога
 //
 // Состояния: Idle → Recording → Sending → Recognizing → Streaming → Showing.
@@ -308,18 +308,30 @@ void setup() {
 void loop() {
   M5.update();
 
-  // BtnB: тап — следующая страница (на последней — очистка),
-  // долгое удержание — очистка экрана и памяти диалога.
+  const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
+
+  // Долгое удержание BtnB — очистка экрана и памяти диалога.
   if (M5.BtnB.wasReleasedAfterHold()) {
     g_history.clear();
     showIdle();
   } else if (M5.BtnB.wasClicked()) {
-    const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
-    if (g_state == State::Showing && g_page + 1 < total) {
-      ++g_page;
+    // Тап — только листание вперёд, закольцованно. На главный экран не
+    // выбрасывает.
+    if (g_state == State::Showing && total > 1) {
+      g_page = (g_page + 1) % total;
+      Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
+                    (unsigned)total);
       drawAnswer(g_page);
-    } else {
-      showIdle();
+    }
+  }
+
+  // Верхняя кнопка — листание назад.
+  if (M5.BtnPWR.wasClicked()) {
+    if (g_state == State::Showing && total > 1) {
+      g_page = (g_page + total - 1) % total;
+      Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
+                    (unsigned)total);
+      drawAnswer(g_page);
     }
   }
 
