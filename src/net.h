@@ -19,12 +19,19 @@ WiFiClientSecure& tlsClient();
 
 // Терпеливая запись: ждёт, пока сокет примет данные, и сдаётся только
 // по общему таймауту kHttpReadMs от `started`. Возвращает false при обрыве
-// или таймауте.
-bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started);
+// или таймауте. progress (если задан) вызывается по мере отправки.
+typedef void (*WriteProgress)(size_t sent, size_t total, void* ctx);
+
+bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started,
+              WriteProgress progress = nullptr, void* ctx = nullptr);
+
+// Вызывается на каждой итерации ожидания данных — для анимации индикатора.
+typedef void (*TickFn)(void* ctx);
 
 // Читает ответ, пока сервер не закроет соединение или не замолчит на
 // 1500 мс после первых байт. Рост ограничен maxLen. Таймаут — kHttpReadMs
-// от `started`.
-String readAll(WiFiClient& c, uint32_t started, size_t maxLen);
+// от `started`. tick (если задан) вызывается во время ожидания.
+String readAll(WiFiClient& c, uint32_t started, size_t maxLen,
+               TickFn tick = nullptr, void* ctx = nullptr);
 
 }  // namespace net

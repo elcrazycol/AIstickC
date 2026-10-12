@@ -12,8 +12,17 @@ struct Result {
   int httpCode = 0; // код ответа, если дошло до него
 };
 
+// Обратные вызовы для индикатора: прогресс отправки по байтам и «тик» во
+// время ожидания ответа (прокси молчит — рисуем анимацию).
+struct Hooks {
+  void (*onUpload)(size_t sent, size_t total, void* ctx) = nullptr;
+  void (*onTick)(void* ctx) = nullptr;
+  void* ctx = nullptr;
+};
+
 // pcm — сырой LPCM: 16 бит, little-endian, знаковый, моно, 16 кГц.
 // WAV-заголовок не нужен: его собирает прокси.
-Result transcribe(const uint8_t* pcm, size_t pcmLen);
+Result transcribe(const uint8_t* pcm, size_t pcmLen,
+                  const Hooks& hooks = Hooks());
 
 }  // namespace stt

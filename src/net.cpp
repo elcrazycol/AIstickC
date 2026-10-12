@@ -25,7 +25,8 @@ WiFiClientSecure& tlsClient() {
   return g_client;
 }
 
-bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started) {
+bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started,
+              WriteProgress progress, void* ctx) {
   size_t sent = 0;
   while (sent < len) {
     if (!c.connected() && c.available() == 0) return false;
@@ -34,6 +35,7 @@ bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started) 
     const size_t n = c.write(data + sent, len - sent);
     if (n > 0) {
       sent += n;
+      if (progress) progress(sent, len, ctx);
       continue;
     }
     delay(2);  // сокет занят — даём ему время
@@ -41,7 +43,8 @@ bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started) 
   return true;
 }
 
-String readAll(WiFiClient& c, uint32_t started, size_t maxLen) {
+String readAll(WiFiClient& c, uint32_t started, size_t maxLen, TickFn tick,
+               void* ctx) {
   String out;
   uint32_t idleSince = millis();
   while (true) {
@@ -57,6 +60,7 @@ String readAll(WiFiClient& c, uint32_t started, size_t maxLen) {
     if (!c.connected() && c.available() == 0) break;
     // Сервер ответил и молчит — не ждём таймаут целиком.
     if (out.length() > 0 && (millis() - idleSince) > 1500) break;
+    if (tick) tick(ctx);
     delay(5);
   }
   return out;

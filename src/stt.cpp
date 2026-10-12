@@ -20,7 +20,7 @@
 
 namespace stt {
 
-Result transcribe(const uint8_t* pcm, size_t pcmLen) {
+Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
   Result r;
 
   if (pcm == nullptr || pcmLen == 0) {
@@ -65,7 +65,7 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen) {
   // Замер только тела: t0 включает TLS-рукопожатие, а оно на ESP32
   // занимает секунды, и портит оценку скорости.
   const uint32_t bodyStart = millis();
-  if (!net::writeAll(c, pcm, pcmLen, t0)) {
+  if (!net::writeAll(c, pcm, pcmLen, t0, hooks.onUpload, hooks.ctx)) {
     r.error = "обрыв отправки";
     c.stop();
     return r;
@@ -76,7 +76,7 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen) {
   Serial.printf("[stt] тело %u байт за %u мс (%u КБ/с), всего с TLS %u мс\n",
                 (unsigned)pcmLen, sentMs, kbps, millis() - t0);
 
-  const String raw = net::readAll(c, t0, kMaxSttResponse);
+  const String raw = net::readAll(c, t0, kMaxSttResponse, hooks.onTick, hooks.ctx);
   c.stop();
   Serial.printf("[stt] ответ %u байт за %u мс\n",
                 (unsigned)raw.length(), millis() - t0);
