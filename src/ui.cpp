@@ -15,6 +15,7 @@ namespace {
 constexpr int kBlack  = lgfx::colors::TFT_BLACK;
 constexpr int kRed    = lgfx::colors::TFT_RED;
 constexpr int kGreen  = lgfx::colors::TFT_GREEN;
+constexpr int kYellow = lgfx::colors::TFT_YELLOW;
 constexpr int kWhite  = lgfx::colors::TFT_WHITE;
 constexpr int kGray   = 0x8410;  // нейтрально-серый RGB565
 
@@ -66,22 +67,67 @@ int rssiPercent() {
   return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
 }
 
+// Уровень заряда и зарядка: читаем с AXP192 не чаще раза в 5 с — I2C-запрос
+// на каждый кадр заметно тормозит отрисовку.
+int g_powerPct = -1;
+bool g_powerCharging = false;
+uint32_t g_powerRead = 0;
+
+void powerStateLocked(int& pct, bool& charging) {
+  const uint32_t now = millis();
+  if (g_powerPct < 0 || now - g_powerRead > 5000) {
+    g_powerRead = now;
+    g_powerPct = (int)M5.Power.getBatteryLevel();
+    g_powerCharging = (M5.Power.isCharging() == m5::Power_Class::is_charging);
+  }
+  pct = g_powerPct;
+  charging = g_powerCharging;
+}
+
+// Молния поверх индикатора заряда.
+void boltLocked(int cx, int top, int h) {
+  const int y0 = top + 1;
+  const int y1 = top + h / 2;
+  const int y2 = top + h - 1;
+  M5.Display.drawLine(cx + 1, y0, cx - 1, y1, kWhite);
+  M5.Display.drawLine(cx - 1, y1, cx + 1, y1, kWhite);
+  M5.Display.drawLine(cx + 1, y1, cx - 1, y2, kWhite);
+}
+
 void statusBarLocked() {
   M5.Display.fillRect(0, 0, kScreenW, kStatusH, kBlack);
 
-  // Только четыре палочки уровня сигнала в правом верхнем углу — мелко и
-  // не мешает тексту.
-  const int pct = rssiPercent();
-  const int level = (pct * 4 + 99) / 100;  // 0..4
-  constexpr int bw = 2;
-  constexpr int gap = 2;
-  constexpr int baseY = 13;
-  const int x0 = kScreenW - kMargin - (4 * bw + 3 * gap);
+  // Батарея справа, низ — на одном уровне с палочками.
+  int pct = 0;
+  bool charging = false;
+  powerStateLocked(pct, charging);
+
+  constexpr int bw = 15;
+  constexpr int bh = 8;
+  constexpr uint16_t kOutline = 0x4208;  // тёмно-серый, обводка не бросается
+  const int bx = kScreenW - kMargin - bw - 2;  // 2 — носик
+  const int by = 13 - bh;
+
+  M5.Display.drawRect(bx, by, bw, bh, kOutline);
+  M5.Display.fillRect(bx + bw, by + 2, 2, 4, kOutline);
+
+  int lvl = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+  const int inner = (bw - 2) * lvl / 100;
+  if (inner > 0) {
+    const uint16_t c = lvl <= 20 ? kRed : (lvl <= 50 ? kYellow : kGreen);
+    M5.Display.fillRect(bx + 1, by + 1, inner, bh - 2, c);
+  }
+  if (charging) boltLocked(bx + bw / 2, by, bh);
+
+  // Палочки сигнала левее батареи.
+  const int level = (rssiPercent() * 4 + 99) / 100;
+  constexpr int sbw = 2;
+  constexpr int sgap = 2;
+  const int sx0 = bx - 8 - (4 * sbw + 3 * sgap);
   for (int i = 0; i < 4; ++i) {
     const int h = 3 + i * 2;  // 3,5,7,9
-    const int x = x0 + i * (bw + gap);
     const uint16_t color = (i < level) ? kGreen : 0x2104;
-    M5.Display.fillRect(x, baseY - h, bw, h, color);
+    M5.Display.fillRect(sx0 + i * (sbw + sgap), 13 - h, sbw, h, color);
   }
 }
 
