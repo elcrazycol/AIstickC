@@ -3,9 +3,7 @@
 // Управление:
 //   BtnA (зажать)  — запись, отпусти — отправить
 //   BtnB (тап)     — следующая страница (закольцовано)
-//   BtnB (3 с)     — на главный экран
-//   BtnB (5 с)     — сброс сессии (история сообщений), с панелью на экране
-//   Оба удержания срабатывают, не дожидаясь отпускания.
+//   BtnB (3 с)     — сброс сессии (память + главный экран) с панелью
 //
 // Состояния: Idle → Recording → Sending → Recognizing → Streaming → Showing.
 // Экран один: полоса состояния и тело. Пока идёт работа — три перетекающие
@@ -63,7 +61,7 @@ bool     g_textStarted = false;
 
 // Удержание боковой кнопки.
 uint32_t g_btnStart = 0;
-uint8_t  g_btnStage = 0;     // 0 — ничего, 1 — показан главный, 2 — сброшено
+bool     g_btnArmed = false;  // нажатие ещё не отработано
 
 // Ширина любого символа в моноширинном шрифте — константа.
 int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
@@ -284,31 +282,24 @@ void clearSession() {
   showIdle();
 }
 
-// Удержание боковой кнопки: 3 с — главный экран, 5 с — сброс сессии.
-// Срабатывает прямо во время удержания, отпускать не нужно.
+// Боковая кнопка: тап — листание вперёд, удержание 3 с — сброс сессии
+// (панель + главный экран). Срабатывает, не дожидаясь отпускания.
 void pollSideButton() {
   if (M5.BtnB.wasPressed()) {
     g_btnStart = millis();
-    g_btnStage = 0;
+    g_btnArmed = true;
   }
 
-  if (M5.BtnB.isPressed()) {
-    const uint32_t held = millis() - g_btnStart;
-    if (g_btnStage == 0 && held >= kIdleHoldMs) {
-      g_btnStage = 1;
-      Serial.printf("[main] боковая %u мс: на главный экран\n",
-                    (unsigned)held);
-      showIdle();
-    } else if (g_btnStage == 1 && held >= kClearHoldMs) {
-      g_btnStage = 2;
-      Serial.printf("[main] боковая %u мс: сброс сессии\n", (unsigned)held);
-      clearSession();
-    }
+  if (g_btnArmed && M5.BtnB.isPressed() &&
+      (millis() - g_btnStart) >= kClearHoldMs) {
+    g_btnArmed = false;
+    Serial.println("[main] удержание: сброс сессии");
+    clearSession();
   }
 
   if (M5.BtnB.wasReleased()) {
     const uint32_t held = millis() - g_btnStart;
-    if (held < kIdleHoldMs) {
+    if (g_btnArmed && held < kClearHoldMs) {
       // Короткий тап — листание вперёд, закольцованно.
       const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
       if (g_state == State::Showing && total > 1) {
@@ -318,7 +309,7 @@ void pollSideButton() {
         drawAnswer(g_page);
       }
     }
-    g_btnStage = 0;
+    g_btnArmed = false;
   }
 }
 

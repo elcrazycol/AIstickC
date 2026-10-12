@@ -14,10 +14,9 @@ constexpr size_t   kAudioBytes      = (size_t)kSampleRate * 2 *
 // kAudioBytes = 480000 при 15 с
 
 // --- Кнопки ---
-// Боковая кнопка (BtnB): удержание -> главный экран, ещё дольше -> сброс
-// сессии. Оба действия срабатывают, не дожидаясь отпускания.
-constexpr uint32_t kIdleHoldMs      = 3000;
-constexpr uint32_t kClearHoldMs     = 5000;
+// Боковая кнопка (BtnB): удержание — сброс сессии (память + главный экран).
+// Срабатывает, не дожидаясь отпускания.
+constexpr uint32_t kClearHoldMs     = 3000;
 
 // --- Экран ---
 constexpr int      kScreenRotation  = 1;       // ландшафт: 1 или 3
