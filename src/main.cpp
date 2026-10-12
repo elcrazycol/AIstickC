@@ -1,12 +1,11 @@
 // Карманный голосовой ассистент: запись → Whisper → DeepSeek → экран.
 //
 // Управление:
-//   BtnA (зажать)   — запись, отпусти — отправить
-//   BtnB (тап)      — следующая страница (закольцовано)
-//   BtnPWR (тап)    — предыдущая страница (верхняя кнопка)
-//   BtnPWR (3 с)    — на главный экран
-//   BtnPWR (5 с)    — сброс сессии (история сообщений)
-//   BtnB (удержать) — очистка экрана и памяти диалога
+//   BtnA (зажать)  — запись, отпусти — отправить
+//   BtnB (тап)     — следующая страница (закольцовано)
+//   BtnB (3 с)     — на главный экран
+//   BtnB (5 с)     — сброс сессии (история сообщений), с панелью на экране
+//   Оба удержания срабатывают, не дожидаясь отпускания.
 //
 // Состояния: Idle → Recording → Sending → Recognizing → Streaming → Showing.
 // Экран один: полоса состояния и тело. Пока идёт работа — три перетекающие
@@ -62,9 +61,9 @@ uint32_t g_lastDraw = 0;     // троттлинг перерисовок тек
 String   g_stream;           // накопленный текст ответа
 bool     g_textStarted = false;
 
-// Удержание верхней кнопки.
-uint32_t g_pwrStart = 0;
-uint8_t  g_pwrStage = 0;     // 0 — ничего, 1 — показан главный, 2 — сброшено
+// Удержание боковой кнопки.
+uint32_t g_btnStart = 0;
+uint8_t  g_btnStage = 0;     // 0 — ничего, 1 — показан главный, 2 — сброшено
 
 // Ширина любого символа в моноширинном шрифте — константа.
 int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
@@ -285,42 +284,41 @@ void clearSession() {
   showIdle();
 }
 
-// Удержание верхней кнопки: 3 с — главный экран, 5 с — сброс сессии.
-void pollPowerButton() {
-  if (M5.BtnPWR.wasPressed()) {
-    g_pwrStart = millis();
-    g_pwrStage = 0;
-    Serial.println("[main] BtnPWR нажата");
+// Удержание боковой кнопки: 3 с — главный экран, 5 с — сброс сессии.
+// Срабатывает прямо во время удержания, отпускать не нужно.
+void pollSideButton() {
+  if (M5.BtnB.wasPressed()) {
+    g_btnStart = millis();
+    g_btnStage = 0;
   }
 
-  if (M5.BtnPWR.isPressed()) {
-    const uint32_t held = millis() - g_pwrStart;
-    if (g_pwrStage == 0 && held >= kPwrIdleMs) {
-      g_pwrStage = 1;
-      Serial.printf("[main] верхняя %u мс: на главный экран\n",
+  if (M5.BtnB.isPressed()) {
+    const uint32_t held = millis() - g_btnStart;
+    if (g_btnStage == 0 && held >= kIdleHoldMs) {
+      g_btnStage = 1;
+      Serial.printf("[main] боковая %u мс: на главный экран\n",
                     (unsigned)held);
       showIdle();
-    } else if (g_pwrStage == 1 && held >= kPwrClearMs) {
-      g_pwrStage = 2;
-      Serial.printf("[main] верхняя %u мс: сброс сессии\n", (unsigned)held);
+    } else if (g_btnStage == 1 && held >= kClearHoldMs) {
+      g_btnStage = 2;
+      Serial.printf("[main] боковая %u мс: сброс сессии\n", (unsigned)held);
       clearSession();
     }
   }
 
-  if (M5.BtnPWR.wasReleased()) {
-    const uint32_t held = millis() - g_pwrStart;
-    Serial.printf("[main] BtnPWR отпущена через %u мс\n", (unsigned)held);
-    if (held < kPwrIdleMs) {
-      // Короткий тап — листание назад.
+  if (M5.BtnB.wasReleased()) {
+    const uint32_t held = millis() - g_btnStart;
+    if (held < kIdleHoldMs) {
+      // Короткий тап — листание вперёд, закольцованно.
       const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
       if (g_state == State::Showing && total > 1) {
-        g_page = (g_page + total - 1) % total;
+        g_page = (g_page + 1) % total;
         Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
                       (unsigned)total);
         drawAnswer(g_page);
       }
     }
-    g_pwrStage = 0;
+    g_btnStage = 0;
   }
 }
 
@@ -339,9 +337,6 @@ void setup() {
   g_prefs.begin("aistick", false);
   g_msgs = g_prefs.getUInt("msgs", 0);
   Serial.printf("[main] всего сообщений: %u\n", (unsigned)g_msgs);
-
-  // Порог «долгого» нажатия BtnB — по спеке.
-  M5.BtnB.setHoldThresh(kLongPressMs);
 
   const size_t total = wav::totalSize(kAudioBytes);
   g_audio = (uint8_t*)ps_malloc(total);
@@ -376,22 +371,8 @@ void setup() {
 void loop() {
   M5.update();
 
-  // Верхняя кнопка: тап — назад по страницам, удержание — главный/сброс.
-  pollPowerButton();
-
-  // BtnB: тап — следующая страница (закольцовано),
-  // долгое удержание — очистка экрана и памяти диалога.
-  if (M5.BtnB.wasReleasedAfterHold()) {
-    clearSession();
-  } else if (M5.BtnB.wasClicked()) {
-    const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
-    if (g_state == State::Showing && total > 1) {
-      g_page = (g_page + 1) % total;
-      Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
-                    (unsigned)total);
-      drawAnswer(g_page);
-    }
-  }
+  // Боковая кнопка: тап — листание вперёд, удержание — главный/сброс.
+  pollSideButton();
 
   if ((g_state == State::Idle || g_state == State::Showing) &&
       M5.BtnA.wasPressed()) {
