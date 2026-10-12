@@ -3,6 +3,8 @@
 #include <M5Unified.h>
 #include <WiFi.h>
 
+#include <cmath>
+
 #include "settings.h"
 #include "font_jbmono.h"
 
@@ -13,13 +15,12 @@ namespace {
 constexpr int kBlack  = lgfx::colors::TFT_BLACK;
 constexpr int kRed    = lgfx::colors::TFT_RED;
 constexpr int kGreen  = lgfx::colors::TFT_GREEN;
-constexpr int kYellow = lgfx::colors::TFT_YELLOW;
 constexpr int kWhite  = lgfx::colors::TFT_WHITE;
 constexpr int kGray   = 0x8410;  // нейтрально-серый RGB565
 
 constexpr int kLineH     = kFont_jbmono_YAdvance;
-constexpr int kFirstBase = 26;  // базовая линия первой строки тела
-constexpr int kBodyWidth = kScreenW - 2 * kMargin;
+constexpr int kFirstBase = 24;  // верх первой строки тела
+constexpr int kBarH      = 12;  // высота нижней полоски
 
 void useFont() {
   M5.Display.setFont(&kFont_jbmono);
@@ -27,7 +28,6 @@ void useFont() {
   M5.Display.setTextWrap(false);
 }
 
-// Текст по центру на базовой линии baseY.
 void centered(const char* s, int baseY, int color) {
   M5.Display.setTextColor(color, kBlack);
   M5.Display.setCursor((kScreenW - M5.Display.textWidth(s)) / 2, baseY);
@@ -57,14 +57,17 @@ int rssiPercent() {
 }
 
 // Волны громкости: вертикальные радужные столбики, свежие справа.
-void drawWave(const uint8_t* wave, size_t n, uint32_t nowMs) {
+// Чистит только свою полоску — это и есть быстрый путь анимации.
+void waveStrip(const uint8_t* wave, size_t n, uint32_t nowMs) {
   constexpr int kBarW = 3;
   constexpr int kGap = 1;
   const int totalW = kWaveBars * (kBarW + kGap) - kGap;
   const int x0 = (kScreenW - totalW) / 2;
+  const int top = kScreenH - kWaveH - 1;
   const int bottom = kScreenH - 1;
 
-  M5.Display.drawFastHLine(x0, kScreenH - kWaveH - 1, totalW, 0x2104);
+  M5.Display.startWrite();
+  M5.Display.fillRect(0, top, kScreenW, kWaveH + 1, kBlack);
   for (int i = 0; i < kWaveBars; ++i) {
     const int idx = (int)n - kWaveBars + i;
     const int amp = (idx >= 0 && idx < (int)n) ? wave[idx] : 0;
@@ -75,6 +78,7 @@ void drawWave(const uint8_t* wave, size_t n, uint32_t nowMs) {
     M5.Display.fillRect(x0 + i * (kBarW + kGap), bottom - h, kBarW, h,
                         hue565(hue));
   }
+  M5.Display.endWrite();
 }
 
 }  // namespace
@@ -116,91 +120,96 @@ void recording(uint32_t remainMs, const uint8_t* wave, size_t waveN) {
   statusBar();
   useFont();
 
-  // Крупный отсчёт секунд.
+  // Крупный отсчёт секунд. Позицию считаем от реальной высоты шрифта,
+  // чтобы не наехать на волны снизу.
   char buf[8];
   snprintf(buf, sizeof(buf), "%u", (unsigned)((remainMs + 999) / 1000));
-  M5.Display.setTextSize(3);
+  M5.Display.setTextSize(2);
+  const int h = M5.Display.fontHeight();
   const int w = M5.Display.textWidth(buf);
   M5.Display.setTextColor(kRed, kBlack);
-  M5.Display.setCursor((kScreenW - w) / 2, 62);
+  M5.Display.setCursor((kScreenW - w) / 2, 30 + (52 - h) / 2);
   M5.Display.print(buf);
   M5.Display.setTextSize(1);
 
-  centered("Говори. Отпустишь — отправлю", 86, kGray);
-  drawWave(wave, waveN, millis());
+  centered("Говори. Отпустишь — отправлю", 88, kGray);
+  waveStrip(wave, waveN, millis());
 }
 
-void progress(const char* label, int percent, uint32_t nowMs) {
+void recordingWaves(const uint8_t* wave, size_t waveN) {
+  waveStrip(wave, waveN, millis());
+}
+
+void answerReset() {
   M5.Display.fillScreen(kBlack);
   statusBar();
   useFont();
-
-  if (percent < 0) percent = 0;
-  if (percent > 100) percent = 100;
-
-  centered(label, 44, kYellow);
-
-  constexpr int kBarH = 18;
-  const int barX = kMargin + 1;
-  const int barW = kScreenW - 2 * (kMargin + 1);
-  const int barY = 58;
-
-  M5.Display.drawRect(barX - 1, barY - 1, barW + 2, kBarH + 2, kGray);
-
-  const int fill = (percent * barW) / 100;
-  for (int x = 0; x < fill; ++x) {
-    const uint8_t hue = (uint8_t)(x * 256 / barW + nowMs / 6);
-    M5.Display.drawFastVLine(barX + x, barY, kBarH, hue565(hue));
-  }
-
-  char pct[8];
-  snprintf(pct, sizeof(pct), "%d%%", percent);
-  M5.Display.setTextSize(2);
-  const int w = M5.Display.textWidth(pct);
-  M5.Display.setTextColor(kWhite, kBlack);
-  M5.Display.setCursor((kScreenW - w) / 2, 100);
-  M5.Display.print(pct);
-  M5.Display.setTextSize(1);
 }
 
-void text(const std::vector<std::string>& lines, size_t from, int color) {
+void answerDots(uint32_t nowMs) {
+  // Точки в начале первой строки, размером со строку. Чистим только свою
+  // полоску — иначе анимация дёргается на медленном SPI.
+  constexpr int r = 3;
+  constexpr int gap = 8;
+  const int cy = kFirstBase + 5;
+  const int x0 = kMargin + 3;
+
+  M5.Display.fillRect(0, kFirstBase - 3, gap * 2 + 12, 18, kBlack);
+
+  const float phase = (float)(nowMs % 900) / 900.0f * 6.2832f;
+  M5.Display.startWrite();
+  for (int i = 0; i < 3; ++i) {
+    const int dy = (int)(3.0f * sinf(phase + i * 2.0944f));
+    const uint8_t hue = (uint8_t)(nowMs / 5 + i * 70);
+    M5.Display.fillCircle(x0 + i * gap, cy + dy, r, hue565(hue));
+  }
+  M5.Display.endWrite();
+}
+
+void answerText(const std::vector<std::string>& lines, size_t from, int color) {
   M5.Display.fillScreen(kBlack);
   statusBar();
   useFont();
 
   M5.Display.setTextColor(color, kBlack);
+  M5.Display.startWrite();
   int y = kFirstBase;
   for (size_t i = from; i < lines.size() && i < from + kBodyLines; ++i) {
     M5.Display.setCursor(kMargin, y);
     M5.Display.print(lines[i].c_str());
     y += kLineH;
   }
+  M5.Display.endWrite();
 }
 
-void bottomBar(int percent, uint32_t nowMs) {
+void bottomBar(int percent, const char* chip) {
   useFont();
   if (percent < 0) percent = 0;
   if (percent > 100) percent = 100;
 
-  constexpr int kBarH = 8;
   const int barX = kMargin;
   const int barW = kScreenW - 2 * kMargin;
   const int barY = kScreenH - kBarH - 1;
 
+  // Градиент статичный по позиции (без мерцания): полоска перерисовывается
+  // только когда меняется процент. Широкие столбики — меньше вызовов SPI.
   const int fill = (percent * barW) / 100;
-  for (int x = 0; x < fill; ++x) {
-    const uint8_t hue = (uint8_t)(x * 256 / barW + nowMs / 6);
-    M5.Display.drawFastVLine(barX + x, barY, kBarH, hue565(hue));
+  M5.Display.startWrite();
+  for (int x = 0; x < fill; x += 2) {
+    const int w = (x + 2 <= fill) ? 2 : 1;
+    M5.Display.fillRect(barX + x, barY, w, kBarH,
+                        hue565((uint8_t)(x * 256 / barW)));
   }
 
-  char pct[8];
-  snprintf(pct, sizeof(pct), "%d%%", percent);
-  const int w = M5.Display.textWidth(pct);
-  const int tx = kScreenW - kMargin - w;
-  M5.Display.fillRect(tx - 1, barY - 9, w + 2, 9, kBlack);
-  M5.Display.setTextColor(kWhite, kBlack);
-  M5.Display.setCursor(tx, barY - 2);
-  M5.Display.print(pct);
+  if (chip != nullptr && chip[0] != 0) {
+    const int w = M5.Display.textWidth(chip);
+    const int tx = kScreenW - kMargin - w - 2;
+    M5.Display.fillRect(tx - 2, barY, w + 4, kBarH, kBlack);
+    M5.Display.setTextColor(kWhite, kBlack);
+    M5.Display.setCursor(tx, barY + kBarH - 2);
+    M5.Display.print(chip);
+  }
+  M5.Display.endWrite();
 }
 
 void pageIndicator(size_t page, size_t total) {

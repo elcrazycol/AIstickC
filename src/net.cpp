@@ -33,12 +33,10 @@ bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started,
     if (millis() - started > kHttpReadMs) return false;
 
     const size_t n = c.write(data + sent, len - sent);
-    if (n > 0) {
-      sent += n;
-      if (progress) progress(sent, len, ctx);
-      continue;
-    }
-    delay(2);  // сокет занят — даём ему время
+    if (n > 0) sent += n;
+    // Прогресс зовём и в простое: по нему анимируется индикатор.
+    if (progress) progress(sent, len, ctx);
+    if (n == 0) delay(2);  // сокет занят — даём ему время
   }
   return true;
 }
