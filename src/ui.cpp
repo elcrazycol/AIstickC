@@ -19,7 +19,7 @@ constexpr int kWhite  = lgfx::colors::TFT_WHITE;
 constexpr int kGray   = 0x8410;  // нейтрально-серый RGB565
 
 constexpr int kLineH     = kFont_jbmono_YAdvance;
-constexpr int kFirstBase = 24;  // верх первой строки тела
+constexpr int kFirstBase = 26;  // верх первой строки тела
 
 SemaphoreHandle_t s_lock = nullptr;   // защита дисплея между задачами
 volatile bool s_dotsOn = false;
@@ -68,18 +68,21 @@ int rssiPercent() {
 
 void statusBarLocked() {
   M5.Display.fillRect(0, 0, kScreenW, kStatusH, kBlack);
-  useFontLocked();
 
-  char buf[24];
-  snprintf(buf, sizeof(buf), "Wi-Fi %d%%", rssiPercent());
-  M5.Display.setTextColor(WiFi.status() == WL_CONNECTED ? kGreen : kRed, kBlack);
-  M5.Display.setCursor(kMargin, 11);
-  M5.Display.print(buf);
-
-  const char* model = "deepseek";
-  M5.Display.setTextColor(kGray, kBlack);
-  M5.Display.setCursor(kScreenW - kMargin - M5.Display.textWidth(model), 11);
-  M5.Display.print(model);
+  // Только четыре палочки уровня сигнала в правом верхнем углу — мелко и
+  // не мешает тексту.
+  const int pct = rssiPercent();
+  const int level = (pct * 4 + 99) / 100;  // 0..4
+  constexpr int bw = 2;
+  constexpr int gap = 2;
+  constexpr int baseY = 13;
+  const int x0 = kScreenW - kMargin - (4 * bw + 3 * gap);
+  for (int i = 0; i < 4; ++i) {
+    const int h = 3 + i * 2;  // 3,5,7,9
+    const int x = x0 + i * (bw + gap);
+    const uint16_t color = (i < level) ? kGreen : 0x2104;
+    M5.Display.fillRect(x, baseY - h, bw, h, color);
+  }
 }
 
 // Волны громкости: вертикальные радужные столбики, свежие справа.
