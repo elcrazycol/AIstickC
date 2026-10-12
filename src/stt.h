@@ -1,4 +1,4 @@
-// Распознавание речи через Yandex SpeechKit.
+// Распознавание речи через свой прокси на VPS (Groq Whisper).
 #pragma once
 
 #include <Arduino.h>
@@ -13,7 +13,7 @@ struct Result {
 };
 
 // pcm — сырой LPCM: 16 бит, little-endian, знаковый, моно, 16 кГц.
-// WAV-заголовок НЕ нужен, SpeechKit его не принимает.
+// WAV-заголовок не нужен: его собирает прокси.
 Result transcribe(const uint8_t* pcm, size_t pcmLen);
 
 }  // namespace stt

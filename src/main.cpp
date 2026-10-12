@@ -1,4 +1,4 @@
-// Милестоун 1: запись → Groq Whisper → текст на экране.
+// Милестоун 1–2: запись → Groq Whisper → текст → ответ DeepSeek → экран.
 //
 // Управление:
 //   BtnA (зажать) — запись, отпустить — отправить
@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "net.h"
 #include "stt.h"
+#include "llm.h"
 #include "pure/wav.h"
 
 namespace {
@@ -29,7 +30,7 @@ constexpr int kWhite  = lgfx::colors::TFT_WHITE;
 uint8_t* g_audio = nullptr;   // PSRAM: 44 байта заголовка + аудио
 int16_t  g_chunk[kDmaChunkBytes / 2];
 
-enum class State { Idle, Recording, Sending, Showing };
+enum class State { Idle, Recording, Sending, Thinking, Showing };
 State g_state = State::Idle;
 String g_shown;
 
@@ -144,7 +145,8 @@ void loop() {
     showStatus("Ready. Держи A", kGreen);
   }
 
-  if (g_state == State::Idle && M5.BtnA.wasPressed()) {
+  if ((g_state == State::Idle || g_state == State::Showing) &&
+      M5.BtnA.wasPressed()) {
     if (WiFi.status() != WL_CONNECTED) {
       showStatus("Wi-Fi...", kYellow);
       if (!net::connectWifi(kWifiTimeoutMs)) {
@@ -170,23 +172,36 @@ void loop() {
       return;
     }
 
-    // SpeechKit принимает сырой LPCM без WAV-заголовка, поэтому
-    // отправляем данные сразу за ним. Ограничения сервиса: 1 МБ и 30 с —
-    // наши 8 с (256 КБ) проходят с запасом.
+    // Прокси на VPS принимает сырой LPCM без WAV-заголовка, поэтому
+    // отправляем данные сразу за ним.
     const uint8_t* pcm = g_audio + wav::headerSize();
 
     g_state = State::Sending;
     showStatus("Sending...", kYellow);
 
-    stt::Result r = stt::transcribe(pcm, got);
-    if (r.ok) {
-      g_shown = r.text;
-      showWrapped(g_shown.c_str(), kWhite);
-      Serial.printf("[main] текст: %s\n", g_shown.c_str());
-    } else {
-      g_shown = r.error;
+    stt::Result s = stt::transcribe(pcm, got);
+    if (!s.ok) {
+      g_shown = s.error;
       showWrapped(g_shown.c_str(), kRed);
-      Serial.printf("[main] ошибка: %s\n", g_shown.c_str());
+      Serial.printf("[main] ошибка STT: %s\n", g_shown.c_str());
+      g_state = State::Showing;
+      return;
+    }
+    Serial.printf("[main] текст: %s\n", s.text.c_str());
+
+    // Вопрос распознан — спрашиваем модель.
+    g_state = State::Thinking;
+    showStatus("Thinking...", kYellow);
+
+    llm::Reply a = llm::ask(s.text);
+    if (a.ok) {
+      g_shown = a.text;
+      showWrapped(g_shown.c_str(), kWhite);
+      Serial.printf("[main] ответ: %s\n", g_shown.c_str());
+    } else {
+      g_shown = a.error;
+      showWrapped(g_shown.c_str(), kRed);
+      Serial.printf("[main] ошибка LLM: %s\n", g_shown.c_str());
     }
     g_state = State::Showing;
   }

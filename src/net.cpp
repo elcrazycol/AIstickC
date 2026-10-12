@@ -25,6 +25,43 @@ WiFiClientSecure& tlsClient() {
   return g_client;
 }
 
+bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started) {
+  size_t sent = 0;
+  while (sent < len) {
+    if (!c.connected() && c.available() == 0) return false;
+    if (millis() - started > kHttpReadMs) return false;
+
+    const size_t n = c.write(data + sent, len - sent);
+    if (n > 0) {
+      sent += n;
+      continue;
+    }
+    delay(2);  // сокет занят — даём ему время
+  }
+  return true;
+}
+
+String readAll(WiFiClient& c, uint32_t started, size_t maxLen) {
+  String out;
+  uint32_t idleSince = millis();
+  while (true) {
+    if (millis() - started > kHttpReadMs) break;
+    while (c.available() > 0) {
+      const int ch = c.read();
+      if (ch < 0) break;
+      out += (char)ch;
+      idleSince = millis();
+      if (out.length() > maxLen) break;
+    }
+    if (out.length() > maxLen) break;
+    if (!c.connected() && c.available() == 0) break;
+    // Сервер ответил и молчит — не ждём таймаут целиком.
+    if (out.length() > 0 && (millis() - idleSince) > 1500) break;
+    delay(5);
+  }
+  return out;
+}
+
 bool connectWifi(uint32_t timeoutMs) {
   const char* ssid = WIFI_SSID;
   if (ssid == nullptr || ssid[0] == 0) {

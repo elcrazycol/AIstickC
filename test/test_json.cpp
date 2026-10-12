@@ -121,6 +121,91 @@ static void test_non_string_value_fails() {
   CHECK(!jsonx::extractString(body.c_str(), "text", out));
 }
 
+// --- Разбор по вложенному пути (ответ OpenCode Go) ---
+
+static void test_path_nested_content() {
+  std::string body =
+      R"({"id":"x","choices":[{"index":0,"message":{"role":"assistant","content":"привет"}}]})";
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "choices/[0]/message/content", out));
+  CHECK_STR_EQ(out, "привет");
+}
+
+static void test_path_reasoning_content_beside() {
+  // reasoning_content идёт перед content — его надо перешагнуть.
+  std::string body =
+      R"({"choices":[{"message":{"reasoning_content":"долго думал","content":"ответ"}}]})";
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "choices/[0]/message/content", out));
+  CHECK_STR_EQ(out, "ответ");
+}
+
+static void test_path_second_element() {
+  std::string body =
+      R"({"choices":[{"message":{"content":"первый"}},{"message":{"content":"второй"}}]})";
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "choices/[1]/message/content", out));
+  CHECK_STR_EQ(out, "второй");
+}
+
+static void test_path_error_message() {
+  std::string body =
+      R"({"error":{"message":"Request is missing x-opencode-session","type":"invalid_request_error"}})";
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "error/message", out));
+  CHECK_STR_EQ(out, "Request is missing x-opencode-session");
+}
+
+static void test_path_top_level_key() {
+  // Путь из одного токена работает как плоский ключ.
+  std::string body = R"({"text":"плоско"})";
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "text", out));
+  CHECK_STR_EQ(out, "плоско");
+}
+
+static void test_path_escapes_inside_content() {
+  std::string body =
+      R"({"choices":[{"message":{"content":"он сказал \"да\"\nвсё"}}]})";
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "choices/[0]/message/content", out));
+  CHECK_STR_EQ(out, "он сказал \"да\"\nвсё");
+}
+
+static void test_path_empty_choices_fails() {
+  std::string body = R"({"choices":[]})";
+  std::string out;
+  CHECK(!jsonx::extractPath(body.c_str(), "choices/[0]/message/content", out));
+}
+
+static void test_path_missing_content_fails() {
+  std::string body = R"({"choices":[{"message":{"role":"assistant"}}]})";
+  std::string out;
+  CHECK(!jsonx::extractPath(body.c_str(), "choices/[0]/message/content", out));
+}
+
+static void test_path_wrong_type_fails() {
+  // choices — не массив.
+  std::string body = R"({"choices":"нет"})";
+  std::string out;
+  CHECK(!jsonx::extractPath(body.c_str(), "choices/[0]/message/content", out));
+}
+
+static void test_path_truncated_fails() {
+  std::string body = R"({"choices":[{"message":{"content":"обрыв)";
+  std::string out;
+  CHECK(!jsonx::extractPath(body.c_str(), "choices/[0]/message/content", out));
+}
+
+static void test_path_skips_key_word_in_value() {
+  // Слово message встречается в значении model — его не спутать с ключом.
+  std::string body =
+      R"({"model":"message-model","choices":[{"message":{"content":"верно"}}]})";
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "choices/[0]/message/content", out));
+  CHECK_STR_EQ(out, "верно");
+}
+
 int main() {
   test_simple_text();
   test_text_with_spaces_around_colon();
@@ -137,5 +222,16 @@ int main() {
   test_unicode_escape_two_byte();
   test_bad_unicode_escape_fails();
   test_non_string_value_fails();
+  test_path_nested_content();
+  test_path_reasoning_content_beside();
+  test_path_second_element();
+  test_path_error_message();
+  test_path_top_level_key();
+  test_path_escapes_inside_content();
+  test_path_empty_choices_fails();
+  test_path_missing_content_fails();
+  test_path_wrong_type_fails();
+  test_path_truncated_fails();
+  test_path_skips_key_word_in_value();
   return puretest::summary("json");
 }

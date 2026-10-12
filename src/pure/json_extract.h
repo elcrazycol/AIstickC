@@ -5,10 +5,14 @@
 //  - ключ ищется только на верхнем уровне, вне строковых значений;
 //  - снимается экранирование \" \\ \/ \b \f \n \r \t и \uXXXX (UTF-8);
 //  - обрезанный или битый JSON даёт false, а не мусор.
+//
+// Дополнительно есть разбор по вложенному пути (extractPath): ответы LLM
+// устроены как choices/[0]/message/content, плоским ключом туда не достать.
 #pragma once
 
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 #include <string>
 
 namespace jsonx {
@@ -142,6 +146,94 @@ inline bool extractString(const char* json, const char* key, std::string& out) {
     if (json[i] == '}') return false;
     return false;
   }
+}
+
+// Находит ключ в объекте, начинающемся в позиции i. При успехе i остаётся
+// на начале значения; при неудаче i не имеет смысла. Чужие ключи
+// перешагиваются целиком, чтобы «content» внутри чужого значения не совпал.
+inline bool selectKey(const char* s, size_t& i, const char* key) {
+  i = skipWs(s, i);
+  if (s[i] != '{') return false;
+  ++i;
+
+  const size_t keyLen = std::char_traits<char>::length(key);
+
+  while (true) {
+    i = skipWs(s, i);
+    if (s[i] == '}' || s[i] == 0) return false;
+
+    std::string name;
+    if (!readString(s, i, name)) return false;
+
+    i = skipWs(s, i);
+    if (s[i] != ':') return false;
+    ++i;
+    i = skipWs(s, i);
+
+    if (name.size() == keyLen && name.compare(key) == 0) return true;
+    if (!skipValue(s, i)) return false;
+
+    i = skipWs(s, i);
+    if (s[i] == ',') { ++i; continue; }
+    return false;
+  }
+}
+
+// Позиционирует i на index-м (с нуля) элементе массива, начинающегося в i.
+inline bool selectIndex(const char* s, size_t& i, int index) {
+  i = skipWs(s, i);
+  if (s[i] != '[') return false;
+  ++i;
+
+  for (int k = 0;; ++k) {
+    i = skipWs(s, i);
+    if (s[i] == ']' || s[i] == 0) return false;  // индекс за границей
+    if (k == index) return true;
+    if (!skipValue(s, i)) return false;
+
+    i = skipWs(s, i);
+    if (s[i] == ',') { ++i; continue; }
+    return false;
+  }
+}
+
+// Достаёт строковое значение по пути. Токены разделены '/':
+//   choices/[0]/message/content
+// Ключ — имя поля, [N] — элемент массива. Битый путь или нестроковое
+// значение → false.
+inline bool extractPath(const char* json, const char* path, std::string& out) {
+  size_t i = 0;
+  const char* p = path;
+
+  while (*p != 0) {
+    const char* slash = std::strchr(p, '/');
+    const size_t segLen = slash ? (size_t)(slash - p) : std::strlen(p);
+    if (segLen == 0) return false;  // пустой токен: "a//b" или хвостовой '/'
+
+    bool ok = false;
+    if (p[0] == '[') {
+      if (p[segLen - 1] != ']') return false;
+      int idx = 0;
+      bool digits = false;
+      for (size_t k = 1; k + 1 < segLen; ++k) {
+        if (p[k] < '0' || p[k] > '9') return false;
+        idx = idx * 10 + (p[k] - '0');
+        digits = true;
+      }
+      if (!digits) return false;  // "[]"
+      ok = selectIndex(json, i, idx);
+    } else {
+      const std::string key(p, segLen);
+      ok = selectKey(json, i, key.c_str());
+    }
+    if (!ok) return false;
+
+    p = slash ? slash + 1 : p + segLen;
+  }
+
+  i = skipWs(json, i);
+  if (json[i] != '"') return false;  // значение не строка
+  return readString(json, i, out);
 }
 
 }  // namespace jsonx

@@ -33,10 +33,30 @@ constexpr const char* kSttContentType = "application/octet-stream";
 // Минимум, который принимает прокси: 50 мс.
 constexpr size_t      kSttMinBytes    = 1600;
 
+// --- LLM через OpenCode Go ---
+// OpenCode доступен из России напрямую, поэтому прокси ему не нужен.
+// Авторизация — ключ подписки (config.h), эндпоинт OpenAI-совместимый.
+constexpr const char* kLlmHost     = "opencode.ai";
+constexpr int         kLlmPort     = 443;
+constexpr const char* kLlmPath     = "/zen/go/v1/chat/completions";
+constexpr const char* kLlmModel    = "deepseek-v4.1-flash";
+// Go просит клиентов представляться своим User-Agent, а не именем
+// HTTP-библиотеки, и присылать стабильный x-opencode-session.
+constexpr const char* kLlmUserAgent = "aistick/0.1";
+// Ответ должен быть коротким: экран 135 px, а reasoning-модель тратит
+// бюджет ещё и на reasoning_content.
+constexpr const char* kLlmSystem =
+    "Ты карманный ассистент. Отвечай кратко, максимум 2-3 коротких "
+    "предложения на языке пользователя.";
+constexpr int         kLlmMaxTokens = 150;
+
 // --- Таймауты сети, мс ---
 constexpr uint32_t kWifiTimeoutMs   = 15000;
 constexpr uint32_t kHttpConnectMs   = 5000;
-// Отправка с устройства идёт ~16 КБ/с, поэтому на 8 секунд записи
-// (256 КБ) нужно ~16 с. Таймаут с запасом на отправку плюс обработку.
+// Отправка с устройства идёт ~28 КБ/с, поэтому на 8 секунд записи
+// (256 КБ) нужно ~10 с. Таймаут с запасом на отправку плюс обработку.
 constexpr uint32_t kHttpReadMs      = 40000;
-constexpr size_t   kMaxSttResponse  = 8192;   // больше ответ не бывает
+constexpr size_t   kMaxSttResponse  = 8192;    // больше ответ не бывает
+// Ответ LLM больше: служебные поля, usage, у reasoning-моделей — ещё и
+// reasoning_content. 16 КБ хватает с большим запасом.
+constexpr size_t   kMaxLlmResponse  = 16384;

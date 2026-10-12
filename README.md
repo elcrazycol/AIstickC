@@ -17,6 +17,20 @@ OpenCode Go) → прочитал на экране.
 Стик отправляет сырой PCM (16 бит, LE, моно, 16 кГц); WAV-заголовок и
 multipart собирает сервер. Прошивка от этого только проще.
 
+## Как устроен ответ
+
+`opencode.ai` **доступен из России напрямую**, поэтому прокси тут не нужен:
+
+```
+стик ──HTTPS──> opencode.ai/zen/go/v1/chat/completions ──> DeepSeek
+          (Authorization: Bearer <ключ>, x-opencode-session)
+```
+
+Модель — `deepseek-v4.1-flash`. Тело запроса — небольшой JSON
+(`model`, `messages`, `max_tokens`), ответ читается из
+`choices[0].message.content`. Go просит клиентов присылать свой
+`User-Agent` и стабильный `x-opencode-session` — оба заголовка уходят.
+
 ## Установка инструментов
 
 PlatformIO Core на этой машине не установлен:
@@ -43,7 +57,7 @@ bash deploy/fill-config.sh
 
 Остальное в `config.h`:
 
-- `OPENCODE_API_KEY` — ключ подписки OpenCode Go (милестоун 2)
+- `OPENCODE_API_KEY` — ключ подписки OpenCode Go
 - `WIFI_SSID`, `WIFI_PASS` — сеть **2.4 ГГц**, ESP32 не видит 5 ГГц
 
 Файл в `.gitignore` и в репозиторий не попадает.

@@ -17,4 +17,14 @@ const char* lastError();
 // Для v1 принято осознанно (см. спеку, раздел 7).
 WiFiClientSecure& tlsClient();
 
+// Терпеливая запись: ждёт, пока сокет примет данные, и сдаётся только
+// по общему таймауту kHttpReadMs от `started`. Возвращает false при обрыве
+// или таймауте.
+bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started);
+
+// Читает ответ, пока сервер не закроет соединение или не замолчит на
+// 1500 мс после первых байт. Рост ограничен maxLen. Таймаут — kHttpReadMs
+// от `started`.
+String readAll(WiFiClient& c, uint32_t started, size_t maxLen);
+
 }  // namespace net

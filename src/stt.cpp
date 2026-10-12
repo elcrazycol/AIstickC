@@ -20,53 +20,6 @@
 
 namespace stt {
 
-namespace {
-
-// Терпеливая запись: ждём, пока сокет примет данные.
-bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t t0) {
-  size_t sent = 0;
-  while (sent < len) {
-    if (!c.connected() && c.available() == 0) return false;
-    if (millis() - t0 > kHttpReadMs) return false;
-
-    const size_t n = c.write(data + sent, len - sent);
-    if (n > 0) {
-      sent += n;
-      continue;
-    }
-    delay(2);  // сокет занят — даём ему время
-  }
-  return true;
-}
-
-bool writeStr(WiFiClient& c, const char* s, uint32_t t0) {
-  return writeAll(c, (const uint8_t*)s, strlen(s), t0);
-}
-
-// Читает ответ целиком, пока сервер не закроет соединение.
-String readAll(WiFiClient& c, uint32_t t0) {
-  String out;
-  uint32_t idleSince = millis();
-  while (true) {
-    if (millis() - t0 > kHttpReadMs) break;
-    while (c.available() > 0) {
-      const int ch = c.read();
-      if (ch < 0) break;
-      out += (char)ch;
-      idleSince = millis();
-      if (out.length() > kMaxSttResponse) break;
-    }
-    if (out.length() > kMaxSttResponse) break;
-    if (!c.connected() && c.available() == 0) break;
-    // Сервер ответил и молчит — не ждём таймаут целиком.
-    if (out.length() > 0 && (millis() - idleSince) > 1500) break;
-    delay(5);
-  }
-  return out;
-}
-
-}  // namespace
-
 Result transcribe(const uint8_t* pcm, size_t pcmLen) {
   Result r;
 
@@ -102,7 +55,7 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen) {
            PROXY_PATH, PROXY_HOST, PROXY_PORT, PROXY_TOKEN,
            kSttContentType, (unsigned)pcmLen);
 
-  if (!writeStr(c, head, t0)) {
+  if (!net::writeAll(c, (const uint8_t*)head, strlen(head), t0)) {
     r.error = "не отправить заголовки";
     c.stop();
     return r;
@@ -112,7 +65,7 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen) {
   // Замер только тела: t0 включает TLS-рукопожатие, а оно на ESP32
   // занимает секунды, и портит оценку скорости.
   const uint32_t bodyStart = millis();
-  if (!writeAll(c, pcm, pcmLen, t0)) {
+  if (!net::writeAll(c, pcm, pcmLen, t0)) {
     r.error = "обрыв отправки";
     c.stop();
     return r;
@@ -123,7 +76,7 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen) {
   Serial.printf("[stt] тело %u байт за %u мс (%u КБ/с), всего с TLS %u мс\n",
                 (unsigned)pcmLen, sentMs, kbps, millis() - t0);
 
-  const String raw = readAll(c, t0);
+  const String raw = net::readAll(c, t0, kMaxSttResponse);
   c.stop();
   Serial.printf("[stt] ответ %u байт за %u мс\n",
                 (unsigned)raw.length(), millis() - t0);
