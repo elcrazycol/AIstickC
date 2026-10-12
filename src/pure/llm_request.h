@@ -9,8 +9,15 @@
 #include <cstdint>
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace llmreq {
+
+// Одна реплика чата.
+struct Msg {
+  std::string role;   // "system" | "user" | "assistant"
+  std::string text;
+};
 
 // Сколько байт займёт строка после экранирования (без обрамляющих кавычек).
 inline size_t escapedLen(const char* s) {
@@ -62,23 +69,44 @@ inline void appendEscaped(std::string& out, const char* s) {
   writeEscaped(&out[at], s);
 }
 
+// Тело запроса chat/completions из произвольного набора реплик. Порядок
+// ключей: model, messages, max_tokens[, stream][, reasoning_effort].
+// Роли — "system", "user", "assistant".
+inline std::string buildChat(const char* model, const std::vector<Msg>& msgs,
+                             int maxTokens, bool stream = false,
+                             const char* reasoningEffort = nullptr) {
+  std::string out;
+  out.reserve(320 + msgs.size() * 32);
+
+  out += "{\"model\":\"";
+  appendEscaped(out, model);
+  out += "\",\"messages\":[";
+  for (size_t i = 0; i < msgs.size(); ++i) {
+    if (i != 0) out += ',';
+    out += "{\"role\":\"";
+    appendEscaped(out, msgs[i].role.c_str());
+    out += "\",\"content\":\"";
+    appendEscaped(out, msgs[i].text.c_str());
+    out += "\"}";
+  }
+  out += "],\"max_tokens\":";
+  out += std::to_string(maxTokens);
+  if (stream) out += ",\"stream\":true";
+  if (reasoningEffort != nullptr && reasoningEffort[0] != 0) {
+    out += ",\"reasoning_effort\":\"";
+    appendEscaped(out, reasoningEffort);
+    out += '"';
+  }
+  out += '}';
+  return out;
+}
+
 // Тело запроса chat/completions. Порядок ключей совпадает со спекой:
 // model, messages (system, user), max_tokens.
 inline std::string build(const char* model, const char* system,
                          const char* user, int maxTokens) {
-  std::string out;
-  out.reserve(320 + escapedLen(system) + escapedLen(user));
-
-  out += "{\"model\":\"";
-  appendEscaped(out, model);
-  out += "\",\"messages\":[{\"role\":\"system\",\"content\":\"";
-  appendEscaped(out, system);
-  out += "\"},{\"role\":\"user\",\"content\":\"";
-  appendEscaped(out, user);
-  out += "\"}],\"max_tokens\":";
-  out += std::to_string(maxTokens);
-  out += '}';
-  return out;
+  const std::vector<Msg> msgs = {{"system", system}, {"user", user}};
+  return buildChat(model, msgs, maxTokens);
 }
 
 }  // namespace llmreq

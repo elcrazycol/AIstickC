@@ -3,6 +3,7 @@
 #include "llm_request.h"
 
 #include <string>
+#include <vector>
 
 static void test_body_has_model_and_roles() {
   std::string body = llmreq::build("deepseek-v4.1-flash", "система", "привет", 150);
@@ -95,6 +96,59 @@ static void test_escaped_len_matches_write() {
   }
 }
 
+static void test_chat_multi_turn_shape() {
+  const std::vector<llmreq::Msg> msgs = {
+      {"system", "система"},
+      {"user", "первый"},
+      {"assistant", "ответ"},
+      {"user", "второй"},
+  };
+  const std::string body = llmreq::buildChat("m", msgs, 42);
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "messages/[0]/content", out));
+  CHECK_STR_EQ(out, "система");
+  CHECK(jsonx::extractPath(body.c_str(), "messages/[2]/content", out));
+  CHECK_STR_EQ(out, "ответ");
+  CHECK(jsonx::extractPath(body.c_str(), "messages/[3]/content", out));
+  CHECK_STR_EQ(out, "второй");
+  CHECK(jsonx::extractPath(body.c_str(), "messages/[3]/role", out));
+  CHECK_STR_EQ(out, "user");
+  CHECK(body.find("\"max_tokens\":42") != std::string::npos);
+}
+
+static void test_chat_escapes_every_message() {
+  const std::vector<llmreq::Msg> msgs = {
+      {"system", "s"},
+      {"assistant", "он сказал \"да\"\nконец"},
+  };
+  const std::string body = llmreq::buildChat("m", msgs, 1);
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "messages/[1]/content", out));
+  CHECK_STR_EQ(out, "он сказал \"да\"\nконец");
+}
+
+static void test_chat_cyrillic_round_trip() {
+  const std::vector<llmreq::Msg> msgs = {
+      {"system", "ты ассистент"},
+      {"user", "Привет, ёж!"},
+  };
+  const std::string body = llmreq::buildChat("m", msgs, 1);
+  CHECK(body.find("Привет, ёж!") != std::string::npos);
+  std::string out;
+  CHECK(jsonx::extractPath(body.c_str(), "messages/[1]/content", out));
+  CHECK_STR_EQ(out, "Привет, ёж!");
+}
+
+static void test_chat_reasoning_effort() {
+  const std::vector<llmreq::Msg> msgs = {{"user", "привет"}};
+  const std::string body = llmreq::buildChat("m", msgs, 10, true, "none");
+  CHECK(body.find("\"stream\":true") != std::string::npos);
+  CHECK(body.find("\"reasoning_effort\":\"none\"") != std::string::npos);
+  // Без параметра ключа нет.
+  const std::string plain = llmreq::buildChat("m", msgs, 10, true);
+  CHECK(plain.find("reasoning_effort") == std::string::npos);
+}
+
 int main() {
   test_body_has_model_and_roles();
   test_round_trip_plain();
@@ -106,5 +160,9 @@ int main() {
   test_system_prompt_round_trip();
   test_empty_user_is_valid();
   test_escaped_len_matches_write();
+  test_chat_multi_turn_shape();
+  test_chat_escapes_every_message();
+  test_chat_cyrillic_round_trip();
+  test_chat_reasoning_effort();
   return puretest::summary("llm_request");
 }
