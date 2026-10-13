@@ -31,3 +31,8 @@ name = http_get
 description = Отправить HTTP GET на домашний адрес (умный дом, вебхук). query — необязательный параметр строки запроса.
 kind = http
 url = https://example.com/hook
+
+name = set_lamp2
+description = Включить, выключить или переключить вторую лампу на GPIO25. Вызывай всегда, когда просят включить, выключить или переключить вторую лампу.
+kind = gpio
+pin = 25
