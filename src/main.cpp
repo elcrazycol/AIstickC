@@ -53,6 +53,7 @@ enum class State {
   Streaming,
   Showing,
   Settings,   // меню настроек (открывается тряской)
+  Dialog,     // подменю «Диалог и ответ»
   Plugins,    // панель плагинов
 };
 State g_state = State::Idle;
@@ -84,6 +85,7 @@ String   g_pendingPlugin;     // плагин, ждущий ответа пол�
 
 // --- меню настроек и панель плагинов ---
 size_t g_menuIndex = 0;
+size_t g_dialogIndex = 0;
 size_t g_pluginIndex = 0;
 std::vector<ui::ListItem> g_pluginRows;  // как показать
 std::vector<std::string> g_pluginNames;  // что ставить/удалять
@@ -105,9 +107,22 @@ void markActivity() {
 }
 
 // Простой: сначала гаснет экран, потом Wi-Fi, потом глубокий сон.
+// Меню тоже уходит по этому таймеру, поэтому showIdle нужен заранее.
+void showIdle();
+
 void pollIdlePower() {
-  if (g_state != State::Idle && g_state != State::Showing) return;
+  const bool inMenu = (g_state == State::Settings || g_state == State::Dialog ||
+                       g_state == State::Plugins);
+  if (g_state != State::Idle && g_state != State::Showing && !inMenu) return;
   const uint32_t idle = millis() - g_lastActivity;
+
+  // Меню не висит вечно: по тому же таймеру уходим на главный экран, а следом
+  // гаснет и экран — как в обычном простое. Кнопки в меню обновляют отсчёт,
+  // поэтому навигация меню не закрывает.
+  if (inMenu && idle >= kScreenOffMs) {
+    Serial.println("[main] простой: выхожу из меню на главный экран");
+    showIdle();
+  }
 
   if (!g_screenOff && idle >= kScreenOffMs) {
     g_screenOff = true;
@@ -367,8 +382,11 @@ void runQuestion() {
   st.onDelta = onDelta;
   llm::Options opt;
   opt.toolsJson = plugins::toolsJson();
-  opt.maxTokens = chatcfg::effectiveTokens(g_history);
-  Serial.printf("[cfg] в запрос: память %u обменов, лимит %d токенов\n",
+  opt.maxTokens = chatcfg::effectiveTokens();
+  const std::string sys = chatcfg::systemPrompt();
+  opt.systemPrompt = sys.c_str();
+  Serial.printf("[cfg] в запрос: %s, память %u обменов, лимит %d токенов\n",
+                chatcfg::lengthLabel().c_str(),
                 (unsigned)chatcfg::effectiveTurns(g_history), opt.maxTokens);
   llm::Reply a = llm::ask(g_history.messages(), s.text, st, opt);
 
@@ -383,7 +401,8 @@ void runQuestion() {
       g_stream = "";
       startWaiting();
       llm::Options fu;
-      fu.maxTokens = chatcfg::effectiveTokens(g_history);
+      fu.maxTokens = chatcfg::effectiveTokens();
+      fu.systemPrompt = sys.c_str();
       fu.toolCallId = a.toolId.c_str();
       fu.toolName = a.toolName.c_str();
       fu.toolArgs = a.toolArgs.c_str();
@@ -530,6 +549,7 @@ void togglePlugin(size_t i) {
 
 void enterPlugins() {
   g_holdExit.clear();
+  markActivity();  // открыли панель — отсчёт простоя начинается заново
   g_state = State::Plugins;
   ui::list("Плагины", {{"обновляю список..."}}, 0);
   repo::refresh();
@@ -539,52 +559,108 @@ void enterPlugins() {
 }
 
 // Пункты меню настроек. Порядок должен совпадать с settingsRows().
-enum class SettingRow { Plugins = 0, Turns, Tokens, Reset, Count };
+enum class SettingRow { Plugins = 0, Dialog, Reset, Count };
+
+// Пункты подменю «Диалог и ответ». Длина ответа идёт первой: она определяет
+// лимит токенов, который стоит ниже.
+enum class DialogRow { Length = 0, Turns, Tokens, Count };
 
 std::vector<ui::ListItem> settingsRows() {
   std::vector<ui::ListItem> rows;
   rows.push_back(ui::ListItem("Плагины"));
-  rows.push_back(ui::ListItem("Память диалога", chatcfg::turnsLabel()));
-  rows.push_back(ui::ListItem("Лимит ответа", chatcfg::tokensLabel()));
+  rows.push_back(ui::ListItem("Диалог и ответ"));
   rows.push_back(ui::ListItem("Сбросить настройки"));
   return rows;
 }
 
-void drawSettings() {
-  ui::list("Настройки", settingsRows(), g_menuIndex);
+std::vector<ui::ListItem> dialogRows() {
+  std::vector<ui::ListItem> rows;
+  rows.push_back(ui::ListItem("Длина ответа", chatcfg::lengthLabel()));
+  rows.push_back(ui::ListItem("Память диалога", chatcfg::turnsLabel()));
+  rows.push_back(ui::ListItem("Лимит ответа", chatcfg::tokensLabel()));
+  return rows;
 }
 
-// BtnA: войти в пункт или переключить значение. Списки короткие, поэтому
-// перебор по кругу понятнее отдельного экрана выбора.
+void drawSettings() { ui::list("Настройки", settingsRows(), g_menuIndex); }
+void drawDialog() { ui::list("Диалог", dialogRows(), g_dialogIndex); }
+
+void enterDialog() {
+  g_holdExit.clear();
+  markActivity();  // открыли меню — отсчёт простоя начинается заново
+  g_state = State::Dialog;
+  g_dialogIndex = 0;
+  drawDialog();
+}
+
+void enterSettings() {
+  g_holdExit.clear();
+  markActivity();
+  g_state = State::Settings;
+  g_menuIndex = 0;
+  drawSettings();
+}
+
+// BtnA: переключить значение по кругу. Списки короткие, поэтому перебор
+// понятнее отдельного экрана выбора.
+void activateDialog(size_t row) {
+  switch (static_cast<DialogRow>(row)) {
+    case DialogRow::Length:
+      chatcfg::nextLength();
+      break;
+    case DialogRow::Turns:
+      chatcfg::nextTurns();
+      break;
+    case DialogRow::Tokens:
+      chatcfg::nextTokens();
+      break;
+    default:
+      return;
+  }
+  drawDialog();  // значение видно прямо в строке — это и есть отклик
+}
+
+void pollDialog() {
+  const size_t n = (size_t)DialogRow::Count;
+
+  // BtnB отдан модулю удержания: тап — назад по списку, зажатие — на уровень выше.
+  switch (g_holdExit.poll()) {
+    case hold::Event::Fired:
+      enterSettings();
+      return;
+    case hold::Event::Tap:
+      g_dialogIndex = (g_dialogIndex + n - 1) % n;
+      drawDialog();
+      return;
+    default:
+      break;
+  }
+
+  if (M5.BtnPWR.wasClicked()) {
+    g_dialogIndex = (g_dialogIndex + 1) % n;
+    drawDialog();
+    return;
+  }
+  if (M5.BtnA.wasClicked()) { activateDialog(g_dialogIndex); return; }
+}
+
 void activateSetting(size_t row) {
   switch (static_cast<SettingRow>(row)) {
     case SettingRow::Plugins:
       enterPlugins();
       return;
-    case SettingRow::Turns:
-      chatcfg::nextTurns();
-      break;
-    case SettingRow::Tokens:
-      chatcfg::nextTokens();
-      break;
+    case SettingRow::Dialog:
+      enterDialog();
+      return;
     case SettingRow::Reset:
       chatcfg::reset();
       break;
     default:
       return;
   }
-  drawSettings();  // значение видно прямо в строке — это и есть отклик
-}
-
-void enterSettings() {
-  g_holdExit.clear();
-  g_state = State::Settings;
-  g_menuIndex = 0;
   drawSettings();
 }
 
 void pollSettings() {
-  markActivity();  // в меню экран не должен гаснуть по таймеру простоя
   const size_t n = (size_t)SettingRow::Count;
 
   // BtnB отдан модулю удержания: тап — назад по списку, зажатие — выход.
@@ -609,7 +685,6 @@ void pollSettings() {
 }
 
 void pollPlugins() {
-  markActivity();  // обновление списка идёт с сетью — это тоже активность
   const size_t n = g_pluginRows.size();
 
   // BtnB отдан модулю удержания: тап — назад по списку, зажатие — выход.
@@ -742,8 +817,25 @@ void loop() {
   }
 
   // Меню и панель — отдельные режимы: кнопки в них значат другое.
-  if (g_state == State::Settings) { pollSettings(); delay(20); return; }
-  if (g_state == State::Plugins) { pollPlugins(); delay(20); return; }
+  // Простой проверяем и здесь: иначе меню висело бы с горящим экраном вечно.
+  if (g_state == State::Settings) {
+    pollSettings();
+    pollIdlePower();
+    delay(20);
+    return;
+  }
+  if (g_state == State::Dialog) {
+    pollDialog();
+    pollIdlePower();
+    delay(20);
+    return;
+  }
+  if (g_state == State::Plugins) {
+    pollPlugins();
+    pollIdlePower();
+    delay(20);
+    return;
+  }
 
   // Боковая кнопка: тап — назад, удержание — сброс сессии.
   pollSideButton();

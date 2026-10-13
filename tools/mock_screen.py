@@ -329,9 +329,16 @@ def screen_plugins(font, items, index, pct=78, rssi=4):
 def screen_settings(font, index, pct=78, rssi=4):
     return screen_list(font, "Настройки", [
         ("Плагины", "", None),
-        ("Память диалога", "авто", None),
-        ("Лимит ответа", "600", None),
+        ("Диалог и ответ", "", None),
         ("Сбросить настройки", "", None),
+    ], index, pct, rssi)
+
+
+def screen_dialog(font, index, pct=78, rssi=4):
+    return screen_list(font, "Диалог", [
+        ("Длина ответа", "кратко", None),
+        ("Память диалога", "авто", None),
+        ("Лимит ответа", "авто 600", None),
     ], index, pct, rssi)
 
 
@@ -365,6 +372,7 @@ def main():
                                ("lamp", None), ("show_text", "installed")], 1),
          "screen-plugins.png")
     save(screen_settings(font, 1), "screen-settings.png")
+    save(screen_dialog(font, 0), "screen-dialog.png")
 
     # --- GIF: запись (волны + отсчёт)
     frames = []

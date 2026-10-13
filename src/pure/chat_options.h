@@ -17,21 +17,58 @@ namespace chatopt {
 constexpr size_t kTurnSteps[] = {0, 1, 3, 5, 8, 12};
 constexpr size_t kTurnStepsCount = sizeof(kTurnSteps) / sizeof(kTurnSteps[0]);
 
-// Ступени лимита ответа: 0 — авто, дальше токены.
-constexpr int kTokenSteps[] = {0, 300, 600, 1000, 2000};
+// Ступени лимита ответа: 0 — авто (следует за длиной ответа), дальше токены.
+constexpr int kTokenSteps[] = {0, 300, 600, 1000, 2000, 3000};
 constexpr size_t kTokenStepsCount = sizeof(kTokenSteps) / sizeof(kTokenSteps[0]);
 
 // Границы, за которые авто не выходит.
 constexpr size_t kAutoTurnsMin = 1;
 constexpr size_t kAutoTurnsMax = 12;
 constexpr int    kAutoTokensMin = 300;
-constexpr int    kAutoTokensMax = 1500;
+constexpr int    kAutoTokensMax = 3000;
 
-// Русский текст — примерно два символа на токен.
-constexpr size_t kCharsPerToken = 2;
-// Запас к тому, что модель уже отвечает: ответ не должен обрываться на
-// полуслове, но и лишнего бюджета просить незачем — он стоит времени.
-constexpr int kTokenHeadroomPercent = 160;
+// --- Длина ответа ---
+//
+// Три уровня: «кратко» — то, что было с самого начала, дальше просим больше
+// текста. Вместе с просьбой растёт и лимит токенов: он должен быть с запасом,
+// иначе длинный ответ оборвётся на полуслове.
+//
+// targetChars — сколько знаков просим. Экран показывает 5 строк по ~29
+// знаков, то есть страница ≈ 145 знаков: 3-4 страницы ≈ 500, 6-7 ≈ 950.
+struct Length {
+  const char* label;       // подпись в меню
+  size_t targetChars;      // сколько просим у модели
+  int maxTokens;           // лимит с запасом
+  const char* ask;         // формулировка для системного промпта
+};
+
+constexpr Length kLengths[] = {
+    {"кратко", 200, 600,
+     "Отвечай кратко, максимум 2-3 коротких предложения на языке пользователя."},
+    {"обычно", 500, 1200,
+     "Отвечай на языке пользователя на 3-4 экрана текста, примерно 10-15 "
+     "предложений: по делу, без воды."},
+    {"подробно", 950, 2400,
+     "Отвечай на языке пользователя подробно, до 6-7 экранов текста: "
+     "развёрнуто, с примерами и пояснениями."},
+};
+constexpr size_t kLengthsCount = sizeof(kLengths) / sizeof(kLengths[0]);
+constexpr size_t kDefaultLength = 0;  // кратко — как было изначально
+
+inline size_t clampLength(size_t v) {
+  return v < kLengthsCount ? v : kDefaultLength;
+}
+inline const char* lengthLabel(size_t v) { return kLengths[clampLength(v)].label; }
+inline size_t lengthTarget(size_t v) {
+  return kLengths[clampLength(v)].targetChars;
+}
+inline int lengthMaxTokens(size_t v) {
+  return kLengths[clampLength(v)].maxTokens;
+}
+inline const char* lengthAsk(size_t v) { return kLengths[clampLength(v)].ask; }
+
+// Следующий уровень по кругу.
+inline size_t nextLength(size_t v) { return (clampLength(v) + 1) % kLengthsCount; }
 
 // Что известно о текущем диалоге.
 struct Stats {
@@ -82,16 +119,6 @@ inline size_t autoTurns(size_t avgTurnChars, size_t budgetChars,
   if (n < kAutoTurnsMin) n = kAutoTurnsMin;
   if (n > kAutoTurnsMax) n = kAutoTurnsMax;
   return n;
-}
-
-// Авто-лимит ответа: с запасом к средней длине ответов модели.
-inline int autoTokens(size_t avgAnswerChars, int defaultTokens) {
-  if (avgAnswerChars == 0) return defaultTokens;
-  const size_t base = avgAnswerChars / kCharsPerToken;
-  size_t t = base * (size_t)kTokenHeadroomPercent / 100;
-  if (t < (size_t)kAutoTokensMin) t = kAutoTokensMin;
-  if (t > (size_t)kAutoTokensMax) t = kAutoTokensMax;
-  return (int)t;
 }
 
 // Значение из списка? Нужно, чтобы выбор, оставшийся от прошлой прошивки,

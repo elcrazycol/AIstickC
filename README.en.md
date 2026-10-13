@@ -47,7 +47,8 @@ Still screens: [idle](docs/images/screen-idle.png),
 [answer](docs/images/screen-answer.png),
 [reset panel](docs/images/screen-notice.png),
 [plugin panel](docs/images/screen-plugins.png),
-[settings](docs/images/screen-settings.png).
+[settings](docs/images/screen-settings.png),
+[dialogue and answer](docs/images/screen-dialog.png).
 
 ## Hardware
 
@@ -216,30 +217,44 @@ rebuild.
 
 ### Settings menu
 
-Shake the stick to open the menu:
+Shake the stick to open the menu: **Plugins** · **Dialogue and answer** ·
+**Reset settings**. Inside the dialogue submenu there are three items, the
+answer length first, because the token limit follows it:
 
-| Item | What it does |
+| Item | Values |
 |---|---|
-| Plugins | the plugin panel (below) |
-| Память диалога (memory) | how many exchanges to keep: `авто` · 1 · 3 · 5 · 8 · 12 |
-| Лимит ответа (answer limit) | max tokens per answer: `авто` · 300 · 600 · 1000 · 2000 |
-| Сбросить настройки (reset) | both settings back to `авто` |
+| Answer length | `кратко` · `обычно` · `подробно` |
+| Dialogue memory | `авто` · 1 · 3 · 5 · 8 · 12 exchanges |
+| Answer limit | `авто` · 300 · 600 · 1000 · 2000 · 3000 tokens |
 
 Navigation: **PWR** — forward, **BtnB** (tap) — back, **BtnA** (tap) — enter an
-item or switch its value, **BtnB** (hold 1.5 s) — exit. The choice lives in NVS
-and survives power-off, so it is still there after a reboot.
+item or switch its value, **BtnB** (hold 1.5 s) — one level up. The choice lives
+in NVS and survives power-off.
 
-**"Авто"** is not a hardcoded number but a measured choice:
+**Answer length** is not just a token limit but a request to the model. The
+levels differ in the wording of the system prompt: "кратко" is what the project
+started with (2-3 sentences), "обычно" asks for 3-4 screens of text, "подробно"
+for up to 6-7. The token limit grows with the request (600 → 1200 → 2400): it
+needs headroom, otherwise a long answer is cut mid-sentence. A limit is a
+ceiling, not a target — on its own it does not lengthen an answer, the prompt
+sets the length.
 
-- **memory** is sized so the history fits the character budget at the current
-  average exchange size: short replies keep more exchanges, long answers fewer,
-  while the request stays the same size;
-- **the answer limit** takes 1.6× headroom over the answers the model has been
-  giving: long enough not to cut a sentence in half, without asking for budget
-  we do not need — it costs time.
+**"Авто" for the limit** means "follow the answer length" — the row shows the
+number that came out of it (`авто 600`). It can also be pinned manually.
 
-While the dialogue is empty there is nothing to measure, so the factory 5
-exchanges and 600 tokens are used. "Reset" returns exactly to that state.
+**"Авто" for memory** is measured: as many exchanges as fit the character
+budget at the current average exchange size. Short replies keep more exchanges,
+long answers fewer, while the request stays the same size. While the dialogue is
+empty the factory 5 exchanges are used.
+
+**"Reset settings"** returns everything to factory: length "кратко", memory and
+limit to "авто".
+
+The menu does not hang forever: on the same power-saving timer (20 s without a
+press) the stick returns to the idle screen and turns the screen off. Buttons
+refresh the countdown, so navigating does not close the menu.
+
+### Plugin panel
 
 ### Plugin panel
 

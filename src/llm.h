@@ -41,6 +41,10 @@ struct Stream {
 
 // Опции запроса.
 struct Options {
+  // Системный промпт. Собирается в main из роли, выбранной длины ответа и
+  // правила про инструменты; nullptr — только роль.
+  const char* systemPrompt = nullptr;
+
   // Сколько токенов разрешено на ответ. Приходит из настроек: конкретное
   // значение или подобранное «авто» (см. src/chat_settings.h).
   int maxTokens = kLlmMaxTokens;

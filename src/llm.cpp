@@ -76,7 +76,7 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
   // system + история + текущий вопрос.
   std::vector<llmreq::Msg> msgs;
   msgs.reserve(history.size() + 2);
-  msgs.push_back({"system", kLlmSystem});
+  msgs.push_back({"system", opts.systemPrompt ? opts.systemPrompt : kLlmRole});
   for (const chat::Msg& m : history) {
     msgs.push_back({m.fromUser ? "user" : "assistant", m.text});
   }

@@ -68,12 +68,37 @@ static void test_auto_turns() {
   CHECK(chatopt::autoTurns(1200, 2400, 5) == 2);
 }
 
-// Авто-лимит: с запасом к тому, что модель уже отвечает.
-static void test_auto_tokens() {
-  CHECK(chatopt::autoTokens(0, 600) == 600);        // истории нет — дефолт
-  CHECK(chatopt::autoTokens(100, 600) == 300);      // 100/2*1.6 = 80 -> пол
-  CHECK(chatopt::autoTokens(500, 600) == 400);      // 500/2*1.6 = 400
-  CHECK(chatopt::autoTokens(4000, 600) == 1500);    // упёрлись в потолок
+// Длина ответа: три уровня, лимит растёт вместе с просьбой.
+static void test_lengths() {
+  CHECK(chatopt::kLengthsCount == 3);
+  CHECK_STR_EQ(chatopt::lengthLabel(0), "кратко");
+  CHECK_STR_EQ(chatopt::lengthLabel(1), "обычно");
+  CHECK_STR_EQ(chatopt::lengthLabel(2), "подробно");
+
+  // И просьба, и лимит растут монотонно: иначе «подробно» обрежется
+  // на полуслове, и уровень окажется хуже предыдущего.
+  for (size_t i = 1; i < chatopt::kLengthsCount; ++i) {
+    CHECK(chatopt::lengthTarget(i) > chatopt::lengthTarget(i - 1));
+    CHECK(chatopt::lengthMaxTokens(i) > chatopt::lengthMaxTokens(i - 1));
+  }
+
+  // Лимит с запасом к просьбе: русский текст — примерно два знака на токен.
+  for (size_t i = 0; i < chatopt::kLengthsCount; ++i) {
+    CHECK((size_t)chatopt::lengthMaxTokens(i) * 2 >= chatopt::lengthTarget(i));
+  }
+
+  // «Обычно» — это про 3-4 страницы по ~145 знаков, «подробно» — про 6-7.
+  CHECK(chatopt::lengthTarget(1) >= 3 * 145);
+  CHECK(chatopt::lengthTarget(2) >= 6 * 145);
+}
+
+// Уровень вне списка (мусор в NVS) — «кратко», а не падение.
+static void test_length_clamp() {
+  CHECK(chatopt::clampLength(99) == chatopt::kDefaultLength);
+  CHECK_STR_EQ(chatopt::lengthLabel(99), "кратко");
+  CHECK(chatopt::nextLength(0) == 1);
+  CHECK(chatopt::nextLength(2) == 0);   // по кругу
+  CHECK(chatopt::nextLength(99) == 1);  // мусор -> кратко -> обычно
 }
 
 // Переключение ступеней по кругу, включая возврат к авто.
@@ -82,7 +107,8 @@ static void test_next_step() {
   CHECK(chatopt::nextStep(chatopt::kTurnSteps, chatopt::kTurnStepsCount, 5) == 8);
   CHECK(chatopt::nextStep(chatopt::kTurnSteps, chatopt::kTurnStepsCount, 12) == 0);
   CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 0) == 300);
-  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 2000) == 0);
+  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 2000) == 3000);
+  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 3000) == 0);
   // Значение не из списка (например, после смены прошивки) — начинаем сначала.
   CHECK(chatopt::nextStep(chatopt::kTurnSteps, chatopt::kTurnStepsCount, 7) == 0);
 }
@@ -102,16 +128,20 @@ static void test_steps_sane() {
   CHECK(chatopt::kTurnSteps[0] == 0);
   CHECK(chatopt::kTokenSteps[0] == 0);
   CHECK(chatopt::kTurnStepsCount == 6);
-  CHECK(chatopt::kTokenStepsCount == 5);
+  CHECK(chatopt::kTokenStepsCount == 6);
   for (size_t i = 1; i < chatopt::kTurnStepsCount; ++i) {
     CHECK(chatopt::kTurnSteps[i] <= chatopt::kAutoTurnsMax);
   }
   // Ступени по возрастанию. Потолок авто (1500) может быть ниже ручной
   // ступени 2000: авто осторожничает, а человек вправе попросить больше.
+  // Ступени по возрастанию, и верхняя не ниже самого длинного уровня:
+  // иначе ручной выбор не сможет дать столько же, сколько «авто».
   for (size_t i = 1; i < chatopt::kTokenStepsCount; ++i) {
     CHECK(chatopt::kTokenSteps[i] >= chatopt::kAutoTokensMin);
     CHECK(chatopt::kTokenSteps[i] > chatopt::kTokenSteps[i - 1]);
   }
+  CHECK((size_t)chatopt::kTokenSteps[chatopt::kTokenStepsCount - 1] >=
+        (size_t)chatopt::lengthMaxTokens(chatopt::kLengthsCount - 1));
 }
 
 int main() {
@@ -120,7 +150,8 @@ int main() {
   test_stats_unanswered();
   test_stats_empty();
   test_auto_turns();
-  test_auto_tokens();
+  test_lengths();
+  test_length_clamp();
   test_next_step();
   test_valid();
   test_steps_sane();
