@@ -25,6 +25,11 @@ class History {
 
   void clear() { msgs_.clear(); }
 
+  // Лимит можно менять на ходу: настройки диалога выбираются в меню, а
+  // «авто» подбирает его перед каждой обрезкой.
+  void setMaxTurns(size_t n) { maxTurns_ = n ? n : 1; }
+  size_t maxTurns() const { return maxTurns_; }
+
   void addUser(const char* text) { msgs_.push_back({true, text ? text : ""}); }
   void addAssistant(const char* text) {
     msgs_.push_back({false, text ? text : ""});

@@ -101,6 +101,26 @@ static void test_zero_max_turns_becomes_one() {
   CHECK_STR_EQ(h.messages().front().text, "2");
 }
 
+// Лимит можно сменить на ходу — так работает настройка «сколько помнить».
+static void test_set_max_turns() {
+  chat::History h(5);
+  for (int i = 1; i <= 5; ++i) {
+    h.addUser("в");
+    h.addAssistant("о");
+  }
+  CHECK_EQ(h.turnCount(), (size_t)5);
+
+  h.setMaxTurns(2);
+  h.trim(100000);
+  CHECK_EQ(h.turnCount(), (size_t)2);
+
+  // Расширение лимита само по себе ничего не добавляет: старое уже удалено.
+  h.setMaxTurns(8);
+  h.trim(100000);
+  CHECK_EQ(h.turnCount(), (size_t)2);
+  CHECK_EQ(h.maxTurns(), (size_t)8);
+}
+
 int main() {
   test_empty();
   test_add_and_order();
@@ -111,5 +131,6 @@ int main() {
   test_clear();
   test_null_text_safe();
   test_zero_max_turns_becomes_one();
+  test_set_max_turns();
   return puretest::summary("chat_history");
 }

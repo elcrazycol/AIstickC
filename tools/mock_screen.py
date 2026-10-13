@@ -283,10 +283,11 @@ def wrap(font, text, max_px):
     return lines
 
 
-def screen_plugins(font, items, index, pct=78, rssi=4):
-    """Панель плагинов: повторяет ui::list в src/ui.cpp.
+def screen_list(font, title, rows, index, pct=78, rssi=4):
+    """Список: повторяет ui::list в src/ui.cpp.
 
-    items — список (имя, метка), метка: "installed" | "update" | None.
+    rows — список (текст, значение, метка). Значение "" — правого поля нет,
+    метка: "installed" | "update" | None. Значение и метка делят одно место.
     """
     img = Image.new("RGB", (W, H), BLACK)
     px = img.load()
@@ -295,24 +296,43 @@ def screen_plugins(font, items, index, pct=78, rssi=4):
     # cursor_y у GFXfont — верх строки, а mock рисует по базовой линии.
     above = max(-g[5] for g in font.glyphs)
 
-    font.text(img, "Плагины", MARGIN, 24 + above, YELLOW)
+    font.text(img, title, MARGIN, 24 + above, YELLOW)
 
     y = 44
-    for i, (name, mark) in enumerate(items):
+    for i, (text, value, mark) in enumerate(rows):
         sel = (i == index)
         if sel:
             fill(px, 0, y, W, y + 20, SEL_BG)
             fill(px, 0, y, 3, y + 20, YELLOW)
-        font.text(img, name, MARGIN + 6, y + above, WHITE if sel else GRAY)
+        font.text(img, text, MARGIN + 6, y + above, WHITE if sel else GRAY)
 
-        cx, cy = W - 13, y + 8
-        if mark == "installed":
-            circle(px, cx, cy, 3, GREEN)
-        elif mark == "update":
-            ring(px, cx, cy, 6, ORANGE)
-            circle(px, cx, cy, 3, ORANGE)
+        if value:
+            vx = W - MARGIN - font.width(value)
+            font.text(img, value, vx, y + above,
+                      YELLOW if sel else (198, 198, 198))  # 0xC618
+        else:
+            cx, cy = W - 13, y + 8
+            if mark == "installed":
+                circle(px, cx, cy, 3, GREEN)
+            elif mark == "update":
+                ring(px, cx, cy, 6, ORANGE)
+                circle(px, cx, cy, 3, ORANGE)
         y += 20
     return img
+
+
+def screen_plugins(font, items, index, pct=78, rssi=4):
+    return screen_list(font, "Плагины", [(n, "", m) for n, m in items], index,
+                       pct, rssi)
+
+
+def screen_settings(font, index, pct=78, rssi=4):
+    return screen_list(font, "Настройки", [
+        ("Плагины", "", None),
+        ("Память диалога", "авто", None),
+        ("Лимит ответа", "600", None),
+        ("Сбросить настройки", "", None),
+    ], index, pct, rssi)
 
 
 def main():
@@ -344,6 +364,7 @@ def main():
     save(screen_plugins(font, [("switch", "installed"), ("weather", "update"),
                                ("lamp", None), ("show_text", "installed")], 1),
          "screen-plugins.png")
+    save(screen_settings(font, 1), "screen-settings.png")
 
     # --- GIF: запись (волны + отсчёт)
     frames = []

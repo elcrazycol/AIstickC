@@ -374,6 +374,15 @@ void list(const char* title, const std::vector<ListItem>& items,
     M5.Display.setCursor(kMargin + 6, y);
     M5.Display.print(items[i].text.c_str());
 
+    // Правое поле: значение настройки. Метки-точки и значение в одной строке
+    // не встречаются, поэтому делят одно место.
+    if (!items[i].value.empty()) {
+      const int w = M5.Display.textWidth(items[i].value.c_str());
+      M5.Display.setTextColor(sel ? kYellow : 0xC618, bg);
+      M5.Display.setCursor(kScreenW - kMargin - w, y);
+      M5.Display.print(items[i].value.c_str());
+    }
+
     // Метка справа — точками: они чётче любых знаков из шрифта.
     const int cy = y + 8;
     switch (items[i].mark) {

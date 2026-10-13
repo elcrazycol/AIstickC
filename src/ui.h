@@ -74,10 +74,12 @@ enum class Mark { None, Installed, Update };
 
 struct ListItem {
   std::string text;
+  std::string value;  // правое поле: текущее значение настройки (может пустовать)
   Mark mark = Mark::None;
 
   ListItem() = default;
   ListItem(const std::string& t, Mark m = Mark::None) : text(t), mark(m) {}
+  ListItem(const std::string& t, const std::string& v) : text(t), value(v) {}
 };
 
 // Список с заголовком: пункты, выделение и прокрутка. Используется

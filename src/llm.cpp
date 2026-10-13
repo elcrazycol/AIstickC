@@ -90,8 +90,8 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
                      kLlmModel, msgs, opts.toolCallId,
                      opts.toolName ? opts.toolName : "",
                      opts.toolArgs ? opts.toolArgs : "", opts.toolResult,
-                     kLlmMaxTokens, true, kLlmReasoningEffort)
-               : llmreq::buildChat(kLlmModel, msgs, kLlmMaxTokens, true,
+                     opts.maxTokens, true, kLlmReasoningEffort)
+               : llmreq::buildChat(kLlmModel, msgs, opts.maxTokens, true,
                                    kLlmReasoningEffort, opts.toolsJson);
   if (body.empty()) {
     r.error = "не собрать запрос";

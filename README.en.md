@@ -46,7 +46,8 @@ Still screens: [idle](docs/images/screen-idle.png),
 [waiting](docs/images/screen-waiting.png),
 [answer](docs/images/screen-answer.png),
 [reset panel](docs/images/screen-notice.png),
-[plugin panel](docs/images/screen-plugins.png).
+[plugin panel](docs/images/screen-plugins.png),
+[settings](docs/images/screen-settings.png).
 
 ## Hardware
 
@@ -103,9 +104,11 @@ aistick/
 │  ├─ repo.cpp/.h         repositories: manifests, install, versions
 │  ├─ webfetch.cpp/.h     https requests (shared by plugins and repositories)
 │  ├─ hold.cpp/.h         button hold: counting and the bottom bar
+│  ├─ chat_settings.cpp/.h  memory and answer-limit choice (stored in NVS)
 │  └─ pure/               pure modules: no Arduino, tested on a Mac
 │     ├─ chat_history.h   dialogue memory with trimming
 │     ├─ chunked.h        incremental chunked decoder
+│     ├─ chat_options.h   setting steps and the "auto" picking
 │     ├─ hold_button.h    button hold counting (events and percentages)
 │     ├─ http_response.h  HTTP response parsing
 │     ├─ json_extract.h   extract fields by path
@@ -210,6 +213,33 @@ the phrase, not by keywords.
 A plugin is a **script** in a tiny built-in language: an `.ais` file in
 `/plugins` on LittleFS. Installing or removing a plugin needs no firmware
 rebuild.
+
+### Settings menu
+
+Shake the stick to open the menu:
+
+| Item | What it does |
+|---|---|
+| Plugins | the plugin panel (below) |
+| Память диалога (memory) | how many exchanges to keep: `авто` · 1 · 3 · 5 · 8 · 12 |
+| Лимит ответа (answer limit) | max tokens per answer: `авто` · 300 · 600 · 1000 · 2000 |
+| Сбросить настройки (reset) | both settings back to `авто` |
+
+Navigation: **PWR** — forward, **BtnB** (tap) — back, **BtnA** (tap) — enter an
+item or switch its value, **BtnB** (hold 1.5 s) — exit. The choice lives in NVS
+and survives power-off, so it is still there after a reboot.
+
+**"Авто"** is not a hardcoded number but a measured choice:
+
+- **memory** is sized so the history fits the character budget at the current
+  average exchange size: short replies keep more exchanges, long answers fewer,
+  while the request stays the same size;
+- **the answer limit** takes 1.6× headroom over the answers the model has been
+  giving: long enough not to cut a sentence in half, without asking for budget
+  we do not need — it costs time.
+
+While the dialogue is empty there is nothing to measure, so the factory 5
+exchanges and 600 tokens are used. "Reset" returns exactly to that state.
 
 ### Plugin panel
 

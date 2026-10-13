@@ -26,6 +26,7 @@
 #include "stt.h"
 #include "llm.h"
 #include "plugins.h"
+#include "chat_settings.h"
 #include "hold.h"
 #include "repo.h"
 #include "ui.h"
@@ -291,6 +292,13 @@ size_t record(size_t audioBytes) {
 }
 
 // Полный цикл: запись → STT → LLM → вывод.
+// Обрезка истории по текущей настройке памяти: конкретное число обменов
+// или подобранное «авто» — под средний размер обмена в этом диалоге.
+void trimHistory() {
+  g_history.setMaxTurns(chatcfg::effectiveTurns(g_history));
+  g_history.trim(kChatMaxChars);
+}
+
 void runQuestion() {
   if (WiFi.status() != WL_CONNECTED) {
     startWaiting();
@@ -359,6 +367,9 @@ void runQuestion() {
   st.onDelta = onDelta;
   llm::Options opt;
   opt.toolsJson = plugins::toolsJson();
+  opt.maxTokens = chatcfg::effectiveTokens(g_history);
+  Serial.printf("[cfg] в запрос: память %u обменов, лимит %d токенов\n",
+                (unsigned)chatcfg::effectiveTurns(g_history), opt.maxTokens);
   llm::Reply a = llm::ask(g_history.messages(), s.text, st, opt);
 
   // Модель вызвала плагин — выполняем действие.
@@ -372,6 +383,7 @@ void runQuestion() {
       g_stream = "";
       startWaiting();
       llm::Options fu;
+      fu.maxTokens = chatcfg::effectiveTokens(g_history);
       fu.toolCallId = a.toolId.c_str();
       fu.toolName = a.toolName.c_str();
       fu.toolArgs = a.toolArgs.c_str();
@@ -380,7 +392,7 @@ void runQuestion() {
       if (c.ok && !c.toolCall) {
         g_history.addUser(s.text.c_str());
         g_history.addAssistant(c.text.c_str());
-        g_history.trim(kChatMaxChars);
+        trimHistory();
         g_color = kWhite;
         g_page = 0;
         wrapInto(c.text.c_str(), g_lines);
@@ -394,7 +406,7 @@ void runQuestion() {
     Serial.printf("[main] ответ: %s\n", a.text.c_str());
     g_history.addUser(s.text.c_str());
     g_history.addAssistant(a.text.c_str());
-    g_history.trim(kChatMaxChars);
+    trimHistory();
     Serial.printf("[main] в памяти %u обменов\n",
                   (unsigned)g_history.turnCount());
 
@@ -526,17 +538,74 @@ void enterPlugins() {
   drawPlugins();
 }
 
+// Пункты меню настроек. Порядок должен совпадать с settingsRows().
+enum class SettingRow { Plugins = 0, Turns, Tokens, Reset, Count };
+
+std::vector<ui::ListItem> settingsRows() {
+  std::vector<ui::ListItem> rows;
+  rows.push_back(ui::ListItem("Плагины"));
+  rows.push_back(ui::ListItem("Память диалога", chatcfg::turnsLabel()));
+  rows.push_back(ui::ListItem("Лимит ответа", chatcfg::tokensLabel()));
+  rows.push_back(ui::ListItem("Сбросить настройки"));
+  return rows;
+}
+
+void drawSettings() {
+  ui::list("Настройки", settingsRows(), g_menuIndex);
+}
+
+// BtnA: войти в пункт или переключить значение. Списки короткие, поэтому
+// перебор по кругу понятнее отдельного экрана выбора.
+void activateSetting(size_t row) {
+  switch (static_cast<SettingRow>(row)) {
+    case SettingRow::Plugins:
+      enterPlugins();
+      return;
+    case SettingRow::Turns:
+      chatcfg::nextTurns();
+      break;
+    case SettingRow::Tokens:
+      chatcfg::nextTokens();
+      break;
+    case SettingRow::Reset:
+      chatcfg::reset();
+      break;
+    default:
+      return;
+  }
+  drawSettings();  // значение видно прямо в строке — это и есть отклик
+}
+
 void enterSettings() {
   g_holdExit.clear();
   g_state = State::Settings;
   g_menuIndex = 0;
-  ui::list("Настройки", {{"Плагины"}}, g_menuIndex);
+  drawSettings();
 }
 
 void pollSettings() {
   markActivity();  // в меню экран не должен гаснуть по таймеру простоя
-  if (g_holdExit.poll() == hold::Event::Fired) { showIdle(); return; }
-  if (M5.BtnA.wasClicked()) { enterPlugins(); return; }
+  const size_t n = (size_t)SettingRow::Count;
+
+  // BtnB отдан модулю удержания: тап — назад по списку, зажатие — выход.
+  switch (g_holdExit.poll()) {
+    case hold::Event::Fired:
+      showIdle();
+      return;
+    case hold::Event::Tap:
+      g_menuIndex = (g_menuIndex + n - 1) % n;
+      drawSettings();
+      return;
+    default:
+      break;
+  }
+
+  if (M5.BtnPWR.wasClicked()) {
+    g_menuIndex = (g_menuIndex + 1) % n;
+    drawSettings();
+    return;
+  }
+  if (M5.BtnA.wasClicked()) { activateSetting(g_menuIndex); return; }
 }
 
 void pollPlugins() {
@@ -625,6 +694,9 @@ void setup() {
     Serial.printf("[main] акселерометр: %s, тип %d, %.2f %.2f %.2f\n",
                   g_imuOk ? "есть" : "нет", (int)M5.Imu.getType(), ax, ay, az);
   }
+
+  // Настройки диалога: сколько помнить и сколько просить у модели.
+  chatcfg::begin();
 
   // Плагины: скрипты из LittleFS.
   plugins::begin();

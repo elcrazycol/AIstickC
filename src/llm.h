@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "pure/chat_history.h"
+#include "settings.h"
 
 namespace llm {
 
@@ -40,6 +41,10 @@ struct Stream {
 
 // Опции запроса.
 struct Options {
+  // Сколько токенов разрешено на ответ. Приходит из настроек: конкретное
+  // значение или подобранное «авто» (см. src/chat_settings.h).
+  int maxTokens = kLlmMaxTokens;
+
   // Список инструментов (плагинов) для модели. nullptr — обычный запрос.
   const char* toolsJson = nullptr;
 
