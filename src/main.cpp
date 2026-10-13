@@ -297,7 +297,10 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
 }
 
 // Захват audioBytes байт в PSRAM. Возвращает число записанных байт.
-size_t record(size_t audioBytes) {
+// Пишем, пока держат BtnA. Однократное нажатие BtnB — отмена: запись
+// прекращается, и ничего никуда не уходит.
+size_t record(size_t audioBytes, bool* cancelled) {
+  if (cancelled != nullptr) *cancelled = false;
   if (!M5.Mic.isRunning()) {
     if (!M5.Mic.begin()) {
       Serial.println("[main] микрофон не стартовал");
@@ -331,11 +334,30 @@ size_t record(size_t audioBytes) {
   while (done < totalSamples && (millis() - started) < (kMaxRecordMs + 2000)) {
     const size_t want = min(totalSamples - done, chunkSamples);
     if (!M5.Mic.record(g_chunk, want, kSampleRate)) { delay(1); continue; }
-    while (M5.Mic.isRecording()) delay(1);
+
+    // Ждём кусок, но кнопки читаем чаще куска: он идёт 256 мс, и быстрый тап
+    // по BtnB иначе проскочил бы между двумя опросами и потерялся. Опрос
+    // раз в 20 мс — как в основном цикле: чаще незачем, M5.update() читает I2C.
+    bool cancel = false;
+    uint32_t lastPoll = 0;
+    while (M5.Mic.isRecording()) {
+      if (millis() - lastPoll >= 20) {
+        lastPoll = millis();
+        M5.update();
+        if (M5.BtnB.wasPressed()) cancel = true;
+      }
+      delay(1);
+    }
+
     memcpy(g_audio + wav::headerSize() + done * 2, g_chunk, want * 2);
     done += want;
 
     pushWave(peakOf(g_chunk, want));
+
+    if (cancel) {
+      if (cancelled != nullptr) *cancelled = true;
+      break;
+    }
 
     M5.update();
     const uint32_t elapsed = millis() - started;
@@ -383,9 +405,18 @@ void runQuestion() {
   g_lastDraw = 0;
   ui::recording(kMaxRecordMs, g_wave, g_waveN);
 
-  const size_t got = record(kAudioBytes);
+  bool cancelled = false;
+  const size_t got = record(kAudioBytes, &cancelled);
   const uint32_t ms = (uint32_t)(got / 2) * 1000 / kSampleRate;
   Serial.printf("[main] записано %u байт (%u мс)\n", (unsigned)got, ms);
+
+  if (cancelled) {
+    Serial.println("[main] запись отменена");
+    ui::notice("Запись отменена");
+    delay(700);
+    showIdle();
+    return;
+  }
 
   if (got < (size_t)kSampleRate * 2 * kMinRecordMs / 1000) {
     showError("Слишком коротко");

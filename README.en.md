@@ -177,6 +177,7 @@ python3 tools/capture.py --monitor
 |---|---|
 | **BtnA** (tap) | wake the screen, nothing more |
 | **BtnA** (hold 0.2 s) | record; release to send |
+| **BtnB** (tap, while recording) | cancel: recording stops, nothing is sent |
 | **BtnB** (tap) | previous page |
 | **PWR** (tap, top) | next page |
 | **BtnB** (hold 1.5 s) | from the answer screen — back to the idle screen; the dialogue is kept |
