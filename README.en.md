@@ -217,15 +217,20 @@ pin = 26
 |---|---|
 | `name` | function name for the model, latin |
 | `description` | what it does; the model decides by this |
-| `kind` | `gpio` · `screen` · `http` · `weather` |
+| `kind` | `gpio` · `screen` · `http` · `weather` · `tuya` |
 | `pin` | for `gpio`: pin number |
 | `url` | for `http`: address (https) |
 | `answer` | `true` — also ask the model to comment on the result |
 
 The argument schema is derived from `kind`: `gpio` expects `state`
 (on/off/toggle), `screen` — `text`, `http` — an optional `query`, `weather` — an
-optional `city`. If the file is missing, the built-in set is used, so the device
-works without it.
+optional `city`, `tuya` — a channel (1..3) and `state`. If the file is missing,
+the built-in set is used, so the device works without it.
+
+`tuya` controls a smart switch **through the VPS proxy**: the stick sends
+`POST /tuya` with the shared `X-Auth`, and the server talks to the Tuya cloud.
+Tuya secrets stay on the server — the firmware has none. Setup is described in
+[deploy/README.md](deploy/README.md).
 
 A plugin can be **two-stage**. `weather` works like this: if no city was given,
 a "Which city?" panel appears, and the next utterance is not sent to the model —

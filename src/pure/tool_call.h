@@ -25,6 +25,7 @@ enum class Kind {
   Screen,   // показать текст (text)
   Http,     // запрос на URL (query — необязательный параметр)
   Weather,  // погода на сегодня (city — необязательный параметр)
+  Tuya,     // Tuya-выключатель через прокси (channel, state)
 };
 
 struct Plugin {

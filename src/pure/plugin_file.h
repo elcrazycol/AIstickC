@@ -35,7 +35,8 @@ inline size_t parse(const char* text, std::vector<Def>& out) {
   size_t accepted = 0;
 
   auto kindOk = [](const std::string& k) {
-    return k == "gpio" || k == "screen" || k == "http" || k == "weather";
+    return k == "gpio" || k == "screen" || k == "http" || k == "weather" ||
+           k == "tuya";
   };
 
   auto flush = [&]() {
@@ -103,6 +104,12 @@ inline const char* schemaFor(const char* kind) {
   if (kind != nullptr && std::string(kind) == "weather") {
     return "{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},"
            "\"required\":[]}";
+  }
+  if (kind != nullptr && std::string(kind) == "tuya") {
+    return "{\"type\":\"object\",\"properties\":{\"channel\":{\"type\":"
+           "\"string\",\"enum\":[\"1\",\"2\",\"3\"]},\"state\":{\"type\":"
+           "\"string\",\"enum\":[\"on\",\"off\",\"toggle\"]}},"
+           "\"required\":[\"state\"]}";
   }
   return "{\"type\":\"object\",\"properties\":{\"state\":{\"type\":\"string\","
          "\"enum\":[\"on\",\"off\",\"toggle\"]}},\"required\":[\"state\"]}";

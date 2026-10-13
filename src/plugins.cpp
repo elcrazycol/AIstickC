@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "config.h"
 #include "settings.h"
 #include "net.h"
 #include "ui.h"
@@ -31,6 +32,7 @@ toolx::Kind kindOf(const std::string& k) {
   if (k == "screen") return toolx::Kind::Screen;
   if (k == "http") return toolx::Kind::Http;
   if (k == "weather") return toolx::Kind::Weather;
+  if (k == "tuya") return toolx::Kind::Tuya;
   return toolx::Kind::Gpio;
 }
 
@@ -56,6 +58,11 @@ void addBuiltins(std::vector<plugfile::Def>& d) {
   add("weather",
       "Узнать погоду на сегодня. Вызывай, когда спрашивают про погоду.",
       "weather", -1, nullptr);
+  add("switch",
+      "Включить, выключить или переключить канал выключателя (1, 2 или 3). "
+      "Вызывай всегда, когда просят включить, выключить или переключить "
+      "свет или выключатель.",
+      "tuya", -1, nullptr);
 }
 
 // Пересобирает таблицу и JSON инструментов из определений.
@@ -133,6 +140,78 @@ int httpsGet(const char* host, const char* path, String& body, size_t maxLen) {
 }
 
 // --- действия ---
+
+// POST на свой прокси с общим секретом. Возвращает код ответа, тело в resp.
+int proxyPost(const char* path, const char* body, String& resp, size_t maxLen) {
+  resp = "";
+  WiFiClientSecure& c = net::tlsClient();
+  c.setTimeout(kHttpConnectMs);
+  if (!c.connect(PROXY_HOST, PROXY_PORT)) return -1;
+  c.setTimeout(kHttpReadMs);
+
+  char head[400];
+  snprintf(head, sizeof(head),
+           "POST %s HTTP/1.1\r\nHost: %s\r\nX-Auth: %s\r\n"
+           "Content-Type: application/json\r\nContent-Length: %u\r\n"
+           "Connection: close\r\n\r\n",
+           path, PROXY_HOST, PROXY_TOKEN, (unsigned)strlen(body));
+  const uint32_t t0 = millis();
+  if (!net::writeAll(c, (const uint8_t*)head, strlen(head), t0) ||
+      !net::writeAll(c, (const uint8_t*)body, strlen(body), t0)) {
+    c.stop();
+    return -1;
+  }
+  const String raw = net::readAll(c, t0, maxLen);
+  c.stop();
+
+  const int code = httpr::parseStatus(raw.c_str());
+  const int sep = raw.indexOf("\r\n\r\n");
+  if (sep >= 0) resp = raw.substring(sep + 4);
+  return code;
+}
+
+// Tuya-выключатель: команда уходит на прокси, он ходит в облако Tuya.
+void runTuya(const std::string& args, Result& r) {
+  std::string state;
+  if (!toolx::argString(args.c_str(), "state", state)) {
+    r.text = "нужен state";
+    return;
+  }
+  int channel = 1;
+  std::string ch;
+  if (toolx::argString(args.c_str(), "channel", ch) && !ch.empty()) {
+    channel = atoi(ch.c_str());
+  }
+  if (channel < 1 || channel > 8) {
+    r.text = "канал 1..8";
+    return;
+  }
+
+  char body[96];
+  snprintf(body, sizeof(body), "{\"channel\":%d,\"state\":\"%s\"}", channel,
+           state.c_str());
+
+  String resp;
+  const int code = proxyPost("/tuya", body, resp, 512);
+  if (code < 0) {
+    r.text = "нет связи с прокси";
+    return;
+  }
+  if (code != 200) {
+    r.text = "прокси: HTTP " + std::to_string(code);
+    return;
+  }
+  std::string st;
+  if (toolx::argString(resp.c_str(), "state", st)) {
+    char buf[40];
+    snprintf(buf, sizeof(buf), "канал %d %s", channel,
+             st == "on" ? "вкл" : "выкл");
+    r.text = buf;
+  } else {
+    r.text = "выполнено";
+  }
+  r.ok = true;
+}
 
 void runGpio(const toolx::Plugin& p, const std::string& args, Result& r) {
   std::string state;
@@ -282,6 +361,7 @@ Result run(const char* name, const char* argsJson) {
       runWeather(city, r);
       break;
     }
+    case toolx::Kind::Tuya: runTuya(args, r); break;
   }
   Serial.printf("[plug] %s -> %s\n", p->name,
                 r.ask ? r.ask : r.text.c_str());

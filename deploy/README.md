@@ -69,6 +69,62 @@ curl -sk -X POST https://your.domain:9443/stt -H "X-Auth: <токен>" --data-b
 
 Должно вернуться `{"text": "..."}`.
 
+## Управление Tuya-выключателем
+
+Прокси умеет ещё и дёргать Tuya-выключатель: стик шлёт `POST /tuya` с общим
+`X-Auth`, а сервер сам ходит в облако Tuya. Секреты Tuya остаются на сервере,
+в прошивке их нет.
+
+Тело запроса: `{"channel": 1, "state": "on"}` — канал 1..8, состояние
+`on` | `off` | `toggle`.
+
+### Откуда взять ключи
+
+1. [iot.tuya.com](https://iot.tuya.com) → Cloud → твой проект.
+2. Там **Access ID** и **Access Secret** → это `TUYA_CLIENT_ID` и `TUYA_SECRET`.
+   Проверь, что выбрана нужная **Data Center** (регион) — она же в `TUYA_REGION`.
+3. Devices → All Devices → твой выключатель → **Device ID** → это
+   `TUYA_DEVICE_ID`. Там же видно, как называются каналы (DP-коды), обычно
+   `switch_1`, `switch_2`, `switch_3` — префикс задаётся `TUYA_DP_PREFIX`.
+
+### Что добавить в окружение
+
+Дописать в `/etc/stt-proxy.env` (права 600, файл уже существует):
+
+```bash
+TUYA_CLIENT_ID=твой_access_id
+TUYA_SECRET=твой_access_secret
+TUYA_DEVICE_ID=твой_device_id
+TUYA_REGION=eu
+TUYA_DP_PREFIX=switch_
+```
+
+И перезапустить юнит:
+
+```bash
+systemctl restart stt-proxy
+journalctl -u stt-proxy -n 20
+```
+
+В логе должно появиться `[proxy] Tuya: регион eu, устройство ...`.
+
+### Проверка вручную
+
+```bash
+curl -sk -X POST https://your.domain:9443/tuya -H "X-Auth: <токен>" \
+     -H "Content-Type: application/json" -d '{"channel":1,"state":"on"}' \
+     -w '\nHTTP %{http_code}\n'
+```
+
+Ожидается `{"ok": true, "channel": 1, "state": "on"}` и щелчок реле.
+
+| Симптом | Причина | Что делать |
+|---|---|---|
+| `503 tuya not configured` | не заданы `TUYA_*` | дописать в env-файл и перезапустить |
+| `502 token: ...` | неверные Access ID/Secret или регион | сверить с консолью Tuya и регион |
+| `502 command: ...` | не тот DP-код канала | посмотреть Device → DP в консоли |
+| `401 unauthorized` | не тот `X-Auth` | как у распознавания |
+
 ## Если что-то не так
 
 | Симптом | Причина | Что делать |
