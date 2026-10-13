@@ -83,6 +83,7 @@ bool     g_textStarted = false;  // текст ответа уже пошёл (�
 // Удержание боковой кнопки: отсчёт и полоска — в модуле hold.
 hold::Watcher g_holdReset(M5.BtnB, kClearHoldMs);   // сброс истории
 hold::Watcher g_holdExit(M5.BtnB, kBackHoldMs);      // «назад»: меню и ответ
+hold::Watcher g_holdRecord(M5.BtnA, kRecordStartMs, false);  // запись — по зажатию
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
 uint32_t g_panelUntil = 0;    // до какого момента держать панель результата
 String   g_pendingPlugin;     // плагин, ждущий ответа пользователя (город)
@@ -319,6 +320,11 @@ size_t record(size_t audioBytes) {
     }
   }
 
+  // Писк — уже после прогрева: это сигнал «говори», и всё сказанное после
+  // него записывается. Раньше он звучал до прогрева, и первые 200 мс речи
+  // пропадали.
+  M5.Speaker.tone(2000, 100);
+
   size_t done = 0;
   uint32_t lastSec = 0xFFFFFFFF;
   const uint32_t started = millis();
@@ -376,7 +382,6 @@ void runQuestion() {
   g_waveN = 0;
   g_lastDraw = 0;
   ui::recording(kMaxRecordMs, g_wave, g_waveN);
-  M5.Speaker.tone(2000, 100);
 
   const size_t got = record(kAudioBytes);
   const uint32_t ms = (uint32_t)(got / 2) * 1000 / kSampleRate;
@@ -887,10 +892,14 @@ void loop() {
   // Верхняя кнопка: тап — вперёд.
   pollPowerTap();
 
-  if ((g_state == State::Idle || g_state == State::Showing) &&
-      M5.BtnA.wasPressed()) {
-    runQuestion();
-    markActivity();  // вопрос занял время — таймер простоя с нуля
+  // BtnA: короткий тап только будит (это уже сделано выше), запись — на
+  // уверенном зажатии. Так обычный клик не поднимает экран записи и не
+  // запускает весь цикл распознавания.
+  if (g_state == State::Idle || g_state == State::Showing) {
+    if (g_holdRecord.poll() == hold::Event::Fired) {
+      runQuestion();
+      markActivity();  // вопрос занял время — таймер простоя с нуля
+    }
   }
 
   // Панель результата плагина уходит сама через пару секунд.

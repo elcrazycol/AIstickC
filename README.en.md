@@ -175,7 +175,8 @@ python3 tools/capture.py --monitor
 
 | Action | Effect |
 |---|---|
-| **BtnA** (hold) | record; release to send |
+| **BtnA** (tap) | wake the screen, nothing more |
+| **BtnA** (hold 0.2 s) | record; release to send |
 | **BtnB** (tap) | previous page |
 | **PWR** (tap, top) | next page |
 | **BtnB** (hold 1.5 s) | from the answer screen — back to the idle screen; the dialogue is kept |
@@ -185,6 +186,10 @@ python3 tools/capture.py --monitor
 Paging also works while an answer is still being written. A finished answer
 wraps around; one still in progress does not jump from start to end. The screen
 does not move on its own: as new text arrives, only the page count changes.
+
+The BtnA threshold is tiny: recording starts almost immediately, but an
+ordinary click does not raise it — only a confident hold does. Any press wakes
+the screen.
 
 While BtnB is held, a progress bar grows at the bottom, so the countdown is
 visible. The reset panel stays until you let go, so it cannot be missed.

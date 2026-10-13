@@ -19,8 +19,11 @@ enum class Event { None, Progress, Fired, Tap };
 
 class Watcher {
  public:
-  Watcher(const m5::Button_Class& button, uint32_t thresholdMs)
-      : button_(button), logic_(thresholdMs) {}
+  // showBar — рисовать ли полоску внизу. Для быстрых порогов (старт записи)
+  // полоска не нужна: она мелькала бы на каждое нажатие.
+  Watcher(const m5::Button_Class& button, uint32_t thresholdMs,
+          bool showBar = true)
+      : button_(button), logic_(thresholdMs), showBar_(showBar) {}
 
   // Вызывать каждый цикл. Полоску рисует не чаще, чем нужно глазу.
   Event poll();
@@ -32,6 +35,7 @@ class Watcher {
   const m5::Button_Class& button_;
   holdbtn::Hold logic_;
   uint32_t lastDraw_ = 0;
+  bool showBar_ = true;
 };
 
 }  // namespace hold

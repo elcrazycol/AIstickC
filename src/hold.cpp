@@ -18,18 +18,18 @@ Event Watcher::poll() {
 
   switch (e) {
     case holdbtn::Hold::Event::Progress:
-      if (now - lastDraw_ >= kDrawEveryMs) {
+      if (showBar_ && now - lastDraw_ >= kDrawEveryMs) {
         lastDraw_ = now;
         ui::holdProgress(logic_.percent());
       }
       return Event::Progress;
 
     case holdbtn::Hold::Event::Fired:
-      ui::holdProgress(0);  // полоска своё отыграла
+      if (showBar_) ui::holdProgress(0);  // полоска своё отыграла
       return Event::Fired;
 
     case holdbtn::Hold::Event::Tap:
-      ui::holdProgress(0);
+      if (showBar_) ui::holdProgress(0);
       return Event::Tap;
 
     case holdbtn::Hold::Event::None:
@@ -38,6 +38,8 @@ Event Watcher::poll() {
   }
 }
 
-void Watcher::clear() { ui::holdProgress(0); }
+void Watcher::clear() {
+  if (showBar_) ui::holdProgress(0);
+}
 
 }  // namespace hold
