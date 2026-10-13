@@ -120,30 +120,74 @@ const Script* find(const std::string& name) {
   return nullptr;
 }
 
+// Скрипт исполняется в отдельной задаче с большим стеком: TLS-рукопожатие
+// внутри интерпретатора требует куда больше стека, чем есть у loopTask,
+// и без этого устройство падало (Stack canary).
+struct Job {
+  const Script* sc = nullptr;
+  std::map<std::string, script::Value> vars;
+  scripthost::Host host;
+  std::string err;
+  volatile bool done = false;
+};
+
+void scriptTask(void* arg) {
+  Job* j = (Job*)arg;
+  script::Interp interp(j->host, j->vars, kMaxSteps);
+  interp.run(j->sc->source.c_str(), j->err);
+  j->done = true;
+  vTaskDelete(nullptr);
+}
+
 // Общий запуск: заполняет переменные и исполняет скрипт.
 Result runScript(const Script& sc, const std::map<std::string, script::Value>& in) {
   Result r;
   r.plugin = sc.name;
 
-  std::map<std::string, script::Value> vars = in;
-  scripthost::Host host;
-  script::Interp interp(host, vars, kMaxSteps);
+  Job* j = new Job();
+  if (j == nullptr) {
+    r.text = "нет памяти под плагин";
+    return r;
+  }
+  j->sc = &sc;
+  j->vars = in;
 
-  std::string err;
-  if (!interp.run(sc.source.c_str(), err)) {
-    Serial.printf("[plug] %s: ошибка скрипта: %s\n", sc.name.c_str(), err.c_str());
-    r.text = "плагин " + sc.name + ": " + err;
+  TaskHandle_t task = nullptr;
+  xTaskCreatePinnedToCore(scriptTask, "plug", 20480, j, 1, &task, 1);
+  if (task == nullptr) {
+    delete j;
+    r.text = "не запустить плагин";
     return r;
   }
-  if (host.asked()) {
-    r.ask = host.result().empty() ? std::string("уточните") : host.result();
+
+  const uint32_t t0 = millis();
+  while (!j->done && (millis() - t0) < 30000) delay(10);
+  if (!j->done) {
+    vTaskDelete(task);
+    delete j;
+    Serial.printf("[plug] %s: таймаут\n", sc.name.c_str());
+    r.text = "плагин " + sc.name + ": таймаут";
+    return r;
+  }
+
+  if (!j->err.empty()) {
+    Serial.printf("[plug] %s: ошибка скрипта: %s\n", sc.name.c_str(),
+                  j->err.c_str());
+    r.text = "плагин " + sc.name + ": " + j->err;
+    delete j;
+    return r;
+  }
+  if (j->host.asked()) {
+    r.ask = j->host.result().empty() ? std::string("уточните") : j->host.result();
     r.ok = true;
+    delete j;
     return r;
   }
-  r.text = host.result().empty() ? std::string("выполнено") : host.result();
-  r.asAnswer = host.asAnswer();
+  r.text = j->host.result().empty() ? std::string("выполнено") : j->host.result();
+  r.asAnswer = j->host.asAnswer();
   r.ok = true;
   Serial.printf("[plug] %s -> %s\n", sc.name.c_str(), r.text.c_str());
+  delete j;
   return r;
 }
 
