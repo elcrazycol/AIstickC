@@ -101,9 +101,11 @@ aistick/
 │  ├─ script_host.cpp/.h  whitelist of functions for scripts
 │  ├─ repo.cpp/.h         repositories: manifests, install, versions
 │  ├─ webfetch.cpp/.h     https requests (shared by plugins and repositories)
+│  ├─ hold.cpp/.h         button hold: counting and the bottom bar
 │  └─ pure/               pure modules: no Arduino, tested on a Mac
 │     ├─ chat_history.h   dialogue memory with trimming
 │     ├─ chunked.h        incremental chunked decoder
+│     ├─ hold_button.h    button hold counting (events and percentages)
 │     ├─ http_response.h  HTTP response parsing
 │     ├─ json_extract.h   extract fields by path
 │     ├─ llm_request.h    build the JSON request
@@ -219,7 +221,7 @@ panel lists what the repository offers, marked `стоит` (installed) or `об
 | **BtnA** (tap) | install / remove the selected plugin |
 | **PWR** (tap) | next item |
 | **BtnB** (tap) | previous item |
-| **BtnA** (hold) | back: panel → settings, settings → idle screen |
+| **BtnB** (hold 3 s) | back: panel → settings, settings → idle screen (same progress bar as the history reset) |
 
 Manifest addresses are listed in `config.h` (comma-separated):
 

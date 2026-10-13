@@ -81,8 +81,12 @@ void load() {
       File f = dir.openNextFile();
       while (f) {
         if (!f.isDirectory()) {
-          const String content = f.readString();
-          addScript(std::string(content.c_str()));
+          const String name = f.name();
+          // В каталоге лежит ещё versions.txt — берём только скрипты.
+          if (name.endsWith(".ais")) {
+            const String content = f.readString();
+            addScript(std::string(content.c_str()));
+          }
         }
         f = dir.openNextFile();
       }

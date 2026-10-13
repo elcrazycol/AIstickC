@@ -26,6 +26,7 @@
 #include "stt.h"
 #include "llm.h"
 #include "plugins.h"
+#include "hold.h"
 #include "repo.h"
 #include "ui.h"
 #include "font_jbmono.h"
@@ -73,9 +74,9 @@ uint32_t g_lastDraw = 0;     // троттлинг перерисовок тек
 String   g_stream;           // накопленный текст ответа
 bool     g_textStarted = false;
 
-// Удержание боковой кнопки.
-uint32_t g_btnStart = 0;
-bool     g_btnArmed = false;  // нажатие ещё не отработано
+// Удержание боковой кнопки: отсчёт и полоска — в модуле hold.
+hold::Watcher g_holdReset(M5.BtnB, kClearHoldMs);   // сброс истории
+hold::Watcher g_holdExit(M5.BtnB, kMenuExitHoldMs);  // выход из меню
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
 uint32_t g_panelUntil = 0;    // до какого момента держать панель результата
 String   g_pendingPlugin;     // плагин, ждущий ответа пользователя (город)
@@ -422,41 +423,28 @@ void pollSideButton() {
     return;
   }
 
-  if (M5.BtnB.wasPressed()) {
-    g_btnStart = millis();
-    g_btnArmed = true;
-  }
-
-  if (g_btnArmed && M5.BtnB.isPressed()) {
-    const uint32_t held = millis() - g_btnStart;
-    if (held >= kClearHoldMs) {
-      g_btnArmed = false;
+  switch (g_holdReset.poll()) {
+    case hold::Event::Fired:
       g_history.clear();
       ui::notice("История разговора очищена");
       g_panelShownAt = millis();
       return;
-    }
-    // Пока держат — показываем растущую полоску, чтобы было видно отсчёт.
-    if (millis() - g_lastDraw > 60) {
-      g_lastDraw = millis();
-      ui::holdProgress((int)(100ULL * held / kClearHoldMs));
-    }
-  }
 
-  if (M5.BtnB.wasReleased()) {
-    const uint32_t held = millis() - g_btnStart;
-    if (g_btnArmed && held < kClearHoldMs) {
+    case hold::Event::Tap:
       // Короткий тап — листание назад, закольцованно.
-      const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
-      if (g_state == State::Showing && total > 1) {
-        g_page = (g_page + total - 1) % total;
-        Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
-                      (unsigned)total);
-        drawAnswer(g_page);
+      if (g_state == State::Showing) {
+        const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
+        if (total > 1) {
+          g_page = (g_page + total - 1) % total;
+          Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
+                        (unsigned)total);
+          drawAnswer(g_page);
+        }
       }
-    }
-    g_btnArmed = false;
-    ui::holdProgress(0);  // убрать полоску удержания
+      return;
+
+    default:
+      return;
   }
 }
 
@@ -525,6 +513,7 @@ void togglePlugin(size_t i) {
 }
 
 void enterPlugins() {
+  g_holdExit.clear();
   g_state = State::Plugins;
   ui::list("Плагины", {"обновляю список..."}, 0);
   repo::refresh();
@@ -534,6 +523,7 @@ void enterPlugins() {
 }
 
 void enterSettings() {
+  g_holdExit.clear();
   g_state = State::Settings;
   g_menuIndex = 0;
   ui::list("Настройки", {"Плагины"}, g_menuIndex);
@@ -541,25 +531,35 @@ void enterSettings() {
 
 void pollSettings() {
   markActivity();  // в меню экран не должен гаснуть по таймеру простоя
-  if (M5.BtnA.wasReleasedAfterHold()) { showIdle(); return; }
+  if (g_holdExit.poll() == hold::Event::Fired) { showIdle(); return; }
   if (M5.BtnA.wasClicked()) { enterPlugins(); return; }
 }
 
 void pollPlugins() {
   markActivity();  // обновление списка идёт с сетью — это тоже активность
   const size_t n = g_pluginRows.size();
-  // Как на главном экране: PWR — вперёд, BtnB — назад.
+
+  // BtnB отдан модулю удержания: тап — назад по списку, зажатие — выход.
+  switch (g_holdExit.poll()) {
+    case hold::Event::Fired:
+      enterSettings();
+      return;
+    case hold::Event::Tap:
+      if (n > 0) {
+        g_pluginIndex = (g_pluginIndex + n - 1) % n;
+        drawPlugins();
+      }
+      return;
+    default:
+      break;
+  }
+
+  // Как на главном экране: PWR — вперёд.
   if (M5.BtnPWR.wasClicked() && n > 0) {
     g_pluginIndex = (g_pluginIndex + 1) % n;
     drawPlugins();
     return;
   }
-  if (M5.BtnB.wasClicked() && n > 0) {
-    g_pluginIndex = (g_pluginIndex + n - 1) % n;
-    drawPlugins();
-    return;
-  }
-  if (M5.BtnA.wasReleasedAfterHold()) { enterSettings(); return; }
   if (M5.BtnA.wasClicked() && n > 0) { togglePlugin(g_pluginIndex); return; }
 }
 
