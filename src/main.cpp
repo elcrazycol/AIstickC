@@ -540,11 +540,13 @@ void enterSettings() {
 }
 
 void pollSettings() {
+  markActivity();  // в меню экран не должен гаснуть по таймеру простоя
   if (M5.BtnA.wasReleasedAfterHold()) { showIdle(); return; }
   if (M5.BtnA.wasClicked()) { enterPlugins(); return; }
 }
 
 void pollPlugins() {
+  markActivity();  // обновление списка идёт с сетью — это тоже активность
   const size_t n = g_pluginRows.size();
   if (M5.BtnB.wasClicked() && n > 0) {
     g_pluginIndex = (g_pluginIndex + 1) % n;
