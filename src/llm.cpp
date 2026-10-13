@@ -143,6 +143,7 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
   std::string toolName;      // имя плагина
   std::string toolArgs;      // аргументы вызова (склеиваются посимвольно)
   std::string plainBody;     // тело ошибки или не-chunked фолбэк
+  std::string finishReason;  // "stop" — договорила, "length" — упёрлась в потолок
   size_t activity = 0;
   bool done = false;
   uint32_t idleSince = millis();
@@ -158,6 +159,14 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
         done = true;
         return;
       }
+      // Причина остановки приходит в последнем событии. Без неё не отличить
+      // «модель договорила» от «потолок токенов оборвал ответ на полуслове».
+      std::string fin;
+      if (jsonx::extractPath(ev.c_str(), "choices/[0]/finish_reason", fin) &&
+          !fin.empty()) {
+        finishReason = fin;
+      }
+
       std::string piece;
       const int kind = deltaOf(ev, piece);
       if (kind == 1 && !piece.empty()) {
@@ -289,6 +298,10 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
 
   r.text = String(content.c_str());
   r.ok = true;
+  r.truncated = (finishReason == "length");
+  if (r.truncated) {
+    Serial.println("[llm] ответ оборван потолком токенов (finish_reason=length)");
+  }
   return r;
 }
 

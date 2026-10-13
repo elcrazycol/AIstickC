@@ -22,6 +22,10 @@ struct Reply {
   String error;      // описание при ok == false
   int httpCode = 0;  // код ответа, если дошло до него
 
+  // Ответ упёрся в потолок токенов и оборван на полуслове:
+  // модель вернула finish_reason = "length", а не "stop".
+  bool truncated = false;
+
   // Модель вместо ответа вызвала инструмент (плагин).
   bool toolCall = false;
   String toolId;     // id вызова — вернём его в tool_call_id
