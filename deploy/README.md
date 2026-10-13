@@ -76,7 +76,10 @@ curl -sk -X POST https://your.domain:9443/stt -H "X-Auth: <токен>" --data-b
 в прошивке их нет.
 
 Тело запроса: `{"channel": 1, "state": "on"}` — канал 1..8, состояние
-`on` | `off` | `toggle`.
+`on` | `off` | `toggle`. Канал `"all"` (или `0`) — **все каналы сразу**
+(«выключи весь свет»); список каналов задаётся `TUYA_CHANNELS`, по умолчанию
+`1,2,3`. Для `toggle` на всех логика такая: если хоть один горит — гасим все,
+иначе включаем все.
 
 ### Откуда взять ключи
 
@@ -97,6 +100,7 @@ TUYA_SECRET=твой_access_secret
 TUYA_DEVICE_ID=твой_device_id
 TUYA_REGION=eu
 TUYA_DP_PREFIX=switch_
+TUYA_CHANNELS=1,2,3
 ```
 
 И перезапустить юнит:

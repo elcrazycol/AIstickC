@@ -67,6 +67,10 @@ TUYA_SECRET = os.environ.get("TUYA_SECRET", "")
 TUYA_DEVICE_ID = os.environ.get("TUYA_DEVICE_ID", "")
 TUYA_REGION = os.environ.get("TUYA_REGION", "eu")
 TUYA_DP_PREFIX = os.environ.get("TUYA_DP_PREFIX", "switch_")
+# Каналы для команды «весь свет сразу» (channel = 0 или "all").
+TUYA_CHANNELS = [int(x) for x in
+                 os.environ.get("TUYA_CHANNELS", "1,2,3").split(",")
+                 if x.strip().isdigit()]
 TUYA_TIMEOUT = 15
 
 TUYA_HOSTS = {
@@ -249,32 +253,49 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._json(400, {"error": "bad json"})
 
-        try:
-            channel = int(req.get("channel", 1))
-        except (TypeError, ValueError):
-            return self._json(400, {"error": "bad channel"})
-        if channel < 1 or channel > 8:
-            return self._json(400, {"error": "channel out of range"})
+        channel_raw = req.get("channel", 1)
+        # Канал 0 или "all" — все каналы сразу («весь свет»).
+        all_channels = str(channel_raw).strip().lower() in ("all", "0")
+        if all_channels:
+            targets = list(TUYA_CHANNELS)
+            if not targets:
+                return self._json(400, {"error": "no channels configured"})
+        else:
+            try:
+                channel = int(channel_raw)
+            except (TypeError, ValueError):
+                return self._json(400, {"error": "bad channel"})
+            if channel < 1 or channel > 8:
+                return self._json(400, {"error": "channel out of range"})
+            targets = [channel]
 
         state = str(req.get("state", "")).lower()
         try:
             if state in ("on", "off"):
                 want = (state == "on")
-                tuya_command(channel, want)
             elif state == "toggle":
-                cur = tuya_channel_state(channel)
-                want = (not bool(cur)) if cur is not None else True
-                tuya_command(channel, want)
+                if len(targets) == 1:
+                    cur = tuya_channel_state(targets[0])
+                    want = (not bool(cur)) if cur is not None else True
+                else:
+                    # Все сразу: если хоть один горит — гасим все, иначе включаем.
+                    cur = [tuya_channel_state(c) for c in targets]
+                    want = not any(bool(x) for x in cur)
             else:
                 return self._json(400, {"error": "state must be on/off/toggle"})
+
+            for c in targets:
+                tuya_command(c, want)
         except Exception as e:  # noqa: BLE001 — сеть и облако бывают разными
             self.log_message("Tuya: %s", str(e)[:160])
             return self._json(502, {"error": str(e)[:160]})
 
         ms = int((time.time() - t0) * 1000)
         result = "on" if want else "off"
-        self.log_message("Tuya канал %d -> %s (%d мс)", channel, result, ms)
-        return self._json(200, {"ok": True, "channel": channel, "state": result})
+        self.log_message("Tuya каналы %s -> %s (%d мс)",
+                         ",".join(str(c) for c in targets), result, ms)
+        return self._json(200, {"ok": True, "channels": targets,
+                                "state": result})
 
     def do_POST(self):  # noqa: N802 — имя задано базовым классом
         t0 = time.time()

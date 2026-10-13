@@ -59,9 +59,9 @@ void addBuiltins(std::vector<plugfile::Def>& d) {
       "Узнать погоду на сегодня. Вызывай, когда спрашивают про погоду.",
       "weather", -1, nullptr);
   add("switch",
-      "Включить, выключить или переключить канал выключателя (1, 2 или 3). "
-      "Вызывай всегда, когда просят включить, выключить или переключить "
-      "свет или выключатель.",
+      "Включить, выключить или переключить выключатель. channel: 1, 2, 3 — "
+      "конкретный канал, all — весь свет сразу. Вызывай всегда, когда просят "
+      "включить, выключить или переключить свет или выключатель.",
       "tuya", -1, nullptr);
 }
 
@@ -171,6 +171,7 @@ int proxyPost(const char* path, const char* body, String& resp, size_t maxLen) {
 }
 
 // Tuya-выключатель: команда уходит на прокси, он ходит в облако Tuya.
+// channel = "all" (или "0") — все каналы сразу, «весь свет».
 void runTuya(const std::string& args, Result& r) {
   std::string state;
   if (!toolx::argString(args.c_str(), "state", state)) {
@@ -178,18 +179,25 @@ void runTuya(const std::string& args, Result& r) {
     return;
   }
   int channel = 1;
+  bool all = false;
   std::string ch;
   if (toolx::argString(args.c_str(), "channel", ch) && !ch.empty()) {
-    channel = atoi(ch.c_str());
+    if (ch == "all" || ch == "0") all = true;
+    else channel = atoi(ch.c_str());
   }
-  if (channel < 1 || channel > 8) {
-    r.text = "канал 1..8";
+  if (!all && (channel < 1 || channel > 8)) {
+    r.text = "канал 1..8 или all";
     return;
   }
 
   char body[96];
-  snprintf(body, sizeof(body), "{\"channel\":%d,\"state\":\"%s\"}", channel,
-           state.c_str());
+  if (all) {
+    snprintf(body, sizeof(body), "{\"channel\":\"all\",\"state\":\"%s\"}",
+             state.c_str());
+  } else {
+    snprintf(body, sizeof(body), "{\"channel\":%d,\"state\":\"%s\"}", channel,
+             state.c_str());
+  }
 
   String resp;
   const int code = proxyPost("/tuya", body, resp, 512);
@@ -203,9 +211,10 @@ void runTuya(const std::string& args, Result& r) {
   }
   std::string st;
   if (toolx::argString(resp.c_str(), "state", st)) {
-    char buf[40];
-    snprintf(buf, sizeof(buf), "канал %d %s", channel,
-             st == "on" ? "вкл" : "выкл");
+    const char* onoff = (st == "on") ? "вкл" : "выкл";
+    char buf[48];
+    if (all) snprintf(buf, sizeof(buf), "весь свет %s", onoff);
+    else snprintf(buf, sizeof(buf), "канал %d %s", channel, onoff);
     r.text = buf;
   } else {
     r.text = "выполнено";

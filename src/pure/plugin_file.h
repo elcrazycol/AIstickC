@@ -107,7 +107,7 @@ inline const char* schemaFor(const char* kind) {
   }
   if (kind != nullptr && std::string(kind) == "tuya") {
     return "{\"type\":\"object\",\"properties\":{\"channel\":{\"type\":"
-           "\"string\",\"enum\":[\"1\",\"2\",\"3\"]},\"state\":{\"type\":"
+           "\"string\",\"enum\":[\"1\",\"2\",\"3\",\"all\"]},\"state\":{\"type\":"
            "\"string\",\"enum\":[\"on\",\"off\",\"toggle\"]}},"
            "\"required\":[\"state\"]}";
   }
