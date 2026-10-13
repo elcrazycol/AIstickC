@@ -197,10 +197,11 @@ There are three today:
 | `show_text` | a panel with text from the model |
 | `http_get` | GET a configured URL (+ optional `query`) |
 
-When a plugin runs, a short result panel appears and the exchange is stored in
-the dialogue memory tagged `[плагин]` (so the model does not think it already
-answered). The `answerAfter` flag makes it also comment on the result (the
-result is sent as a `role:"tool"` message).
+When a plugin runs, a short result panel appears and disappears back to the
+idle screen by itself after a couple of seconds. The exchange is deliberately
+**not** stored in the dialogue memory: otherwise the model starts copying the
+note as text instead of calling the tool. The `answerAfter` flag makes it also
+comment on the result (the result is sent as a `role:"tool"` message).
 
 Adding a plugin means adding a table row and rebuilding. The next step is moving
 the table into LittleFS so a plugin can be dropped in as a file without

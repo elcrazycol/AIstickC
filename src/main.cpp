@@ -66,6 +66,7 @@ bool     g_textStarted = false;
 uint32_t g_btnStart = 0;
 bool     g_btnArmed = false;  // нажатие ещё не отработано
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
+uint32_t g_panelUntil = 0;    // до какого момента держать панель результата
 
 // --- Энергосбережение ---
 uint32_t g_lastActivity = 0;
@@ -313,13 +314,11 @@ void runQuestion() {
     char panel[72];
     snprintf(panel, sizeof(panel), "%s: %s", a.toolName.c_str(), pr.detail);
     ui::notice(panel);
-    // В историю пишем с пометкой, что это был вызов плагина, — иначе модель
-    // решает, что уже «ответила», и в следующий раз не зовёт инструмент.
-    char hist[80];
-    snprintf(hist, sizeof(hist), "[плагин] %s", panel);
-    g_history.addUser(s.text.c_str());
-    g_history.addAssistant(hist);
-    g_history.trim(kChatMaxChars);
+    // Панель результата сама уходит в главный экран.
+    g_panelUntil = millis() + kPluginPanelMs;
+    // В память диалога вызов НЕ пишем: если записать его как «ответ
+    // ассистента», модель начинает копировать пометку текстом вместо
+    // вызова инструмента. Плагины stateless, память им не нужна.
 
     // Плагин может попросить модель прокомментировать результат.
     if (pr.answerAfter) {
@@ -332,6 +331,7 @@ void runQuestion() {
       fu.toolResult = pr.detail;
       llm::Reply c = llm::ask(g_history.messages(), s.text, st, fu);
       if (c.ok && !c.toolCall) {
+        g_history.addUser(s.text.c_str());
         g_history.addAssistant(c.text.c_str());
         g_history.trim(kChatMaxChars);
         g_color = kWhite;
@@ -498,6 +498,12 @@ void loop() {
       M5.BtnA.wasPressed()) {
     runQuestion();
     markActivity();  // вопрос занял время — таймер простоя с нуля
+  }
+
+  // Панель результата плагина уходит сама через пару секунд.
+  if (g_panelUntil != 0 && (int32_t)(millis() - g_panelUntil) >= 0) {
+    g_panelUntil = 0;
+    showIdle();
   }
 
   pollIdlePower();

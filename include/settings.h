@@ -31,6 +31,9 @@ constexpr uint32_t kWifiOffMs   = 90000;
 // Глубокий сон после долгого простоя. Будит большая кнопка (BtnA).
 constexpr uint32_t kDeepSleepMs = 3600000;
 
+// Сколько держится панель результата плагина, прежде чем уйти в главный экран.
+constexpr uint32_t kPluginPanelMs = 2500;
+
 // --- Прочее ---
 constexpr uint32_t kSerialBaud      = 115200;
 
