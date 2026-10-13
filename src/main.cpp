@@ -74,10 +74,11 @@ size_t  g_waveN = 0;
 
 uint32_t g_lastDraw = 0;     // троттлинг перерисовок текста
 String   g_stream;           // накопленный текст ответа
-// Листание. g_followTail — идти ли за «живым» краем: пока ответ пишется,
-// последняя страница растёт, и на ней показывается свежий текст.
-size_t   g_drawnPage = 0;      // что сейчас на экране
-bool     g_followTail = true;  // держаться последней страницы
+// Листание. Экран сам не перелистывается: пока ответ пишется, страница
+// остаётся там, где её оставил пользователь, а растёт только число страниц.
+size_t   g_drawnPage = 0;   // что сейчас на экране
+size_t   g_drawnTotal = 0;  // с каким счётчиком
+bool     g_textStarted = false;  // текст ответа уже пошёл (точки погасли)
 
 // Удержание боковой кнопки: отсчёт и полоска — в модуле hold.
 hold::Watcher g_holdReset(M5.BtnB, kClearHoldMs);   // сброс истории
@@ -185,10 +186,11 @@ uint8_t peakOf(const int16_t* s, size_t n) {
 void drawAnswer(size_t page) {
   g_page = page;
   g_drawnPage = page;
+  g_drawnTotal = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
   ui::dotsStop();
   ui::answerReset();
   ui::answerText(g_lines, page * ui::kBodyLines, g_color);
-  ui::pageIndicator(page, textwrap::pageCount(g_lines.size(), ui::kBodyLines));
+  ui::pageIndicator(page, g_drawnTotal);
 }
 
 // Листание. Работает и во время стрима: готовые страницы можно читать,
@@ -203,7 +205,6 @@ void pageBy(int delta) {
   if (next < 0) next = (g_state == State::Showing) ? last : 0;
   if (next > last) next = (g_state == State::Showing) ? 0 : last;
 
-  g_followTail = (next == last);
   Serial.printf("[main] страница %d/%d\n", next + 1, last + 1);
   drawAnswer((size_t)next);
 }
@@ -248,7 +249,7 @@ void showIdle() {
 // Начало фазы ожидания: чистый экран и запущенная анимация точек.
 void startWaiting() {
   g_drawnPage = (size_t)-1;  // на экране ещё не текст: первый кадр всё сотрёт
-  g_followTail = true;
+  g_drawnTotal = 0;
   g_lastDraw = 0;
   ui::answerReset();
   ui::dotsStart();
@@ -267,20 +268,29 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
   const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
   if (total == 0) return;
 
-  // Держимся последней страницы: счётчик растёт вместе с текстом, а если
-  // пользователь ушёл читать готовое, его не дёргаем.
-  if (g_followTail && g_page != total - 1) {
-    Serial.printf("[main] страница %u/%u — ответ дописывается\n",
-                  (unsigned)total, (unsigned)total);
-  }
-  if (g_followTail) g_page = total - 1;
-  if (g_page >= total) g_page = total - 1;
+  if (g_page >= total) g_page = total - 1;  // страховка на всякий случай
 
-  if (g_page != g_drawnPage) {
-    // Страница сменилась — старые строки надо стереть, иначе останутся хвосты.
-    drawAnswer(g_page);
-  } else {
+  if (!g_textStarted) {
+    g_textStarted = true;
+    ui::dotsStop();
+    ui::answerReset();  // стереть точки перед первым текстом
     ui::answerText(g_lines, g_page * ui::kBodyLines, kWhite);
+    ui::pageIndicator(g_page, total);
+    g_drawnPage = g_page;
+    g_drawnTotal = total;
+    return;
+  }
+
+  // Экран не перелистываем: пользователь остаётся на своей странице.
+  // Растут только строки последней страницы (её и дорисовываем) и число
+  // страниц в счётчике. Готовые страницы не трогаем — они не меняются.
+  if (g_page == total - 1) {
+    ui::answerText(g_lines, g_page * ui::kBodyLines, kWhite);
+  }
+  if (total != g_drawnTotal) {
+    g_drawnTotal = total;
+    Serial.printf("[main] страниц стало %u, смотрю %u\n", (unsigned)total,
+                  (unsigned)(g_page + 1));
     ui::pageIndicator(g_page, total);
   }
 }
