@@ -165,13 +165,16 @@ Result run(const char* name, const char* argsJson) {
     return r;
   }
 
-  // Аргументы модели -> переменные скрипта.
+  // Аргументы модели -> переменные скрипта. Параметры, которые модель не
+  // передала, объявляем пустой строкой — скрипт должен их видеть.
   std::map<std::string, script::Value> vars;
   const std::string args(argsJson ? argsJson : "{}");
   for (const std::string& p : sc->params) {
     std::string v;
     if (jsonx::extractPath(args.c_str(), p.c_str(), v)) {
       vars[p] = script::Value::ofStr(v);
+    } else {
+      vars[p] = script::Value::ofStr("");
     }
   }
   return runScript(*sc, vars);
