@@ -66,6 +66,11 @@ void notice(const char* text);
 // Индикатор удержания кнопки: тонкая полоска внизу экрана.
 void holdProgress(int percent);
 
+// Список с заголовком: пункты, выделение и прокрутка. Используется
+// меню настроек и панелью плагинов.
+void list(const char* title, const std::vector<std::string>& items,
+          size_t index);
+
 // Погасить/вернуть подсветку (пиксели не трогаем — картинка сохраняется).
 void screenOff();
 void screenOn();

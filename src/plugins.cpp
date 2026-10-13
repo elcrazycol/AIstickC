@@ -237,4 +237,10 @@ Result runInput(const char* name, const char* userText) {
   return runScript(*sc, vars);
 }
 
+size_t names(std::vector<std::string>& out) {
+  out.clear();
+  for (const Script& s : g_scripts) out.push_back(s.name);
+  return out.size();
+}
+
 }  // namespace plugins

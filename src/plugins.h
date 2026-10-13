@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 #include "pure/tool_call.h"
 
@@ -36,5 +37,8 @@ Result run(const char* name, const char* argsJson);
 // Ответ пользователя на вопрос плагина (ask). Текст уходит в переменную
 // input и в первый параметр скрипта.
 Result runInput(const char* name, const char* userText);
+
+// Имена загруженных скриптов (для панели плагинов).
+size_t names(std::vector<std::string>& out);
 
 }  // namespace plugins

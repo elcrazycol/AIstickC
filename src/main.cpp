@@ -16,6 +16,7 @@
 #include <Preferences.h>
 #include <esp_sleep.h>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,7 @@
 #include "stt.h"
 #include "llm.h"
 #include "plugins.h"
+#include "repo.h"
 #include "ui.h"
 #include "font_jbmono.h"
 #include "pure/wav.h"
@@ -41,7 +43,16 @@ constexpr int kBodyW = kScreenW - 2 * ui::kMargin;
 uint8_t* g_audio = nullptr;   // PSRAM: заголовок + аудио
 int16_t  g_chunk[kDmaChunkBytes / 2];
 
-enum class State { Idle, Recording, Sending, Recognizing, Streaming, Showing };
+enum class State {
+  Idle,
+  Recording,
+  Sending,
+  Recognizing,
+  Streaming,
+  Showing,
+  Settings,   // меню настроек (открывается тряской)
+  Plugins,    // панель плагинов
+};
 State g_state = State::Idle;
 
 std::vector<std::string> g_lines;
@@ -68,6 +79,14 @@ bool     g_btnArmed = false;  // нажатие ещё не отработано
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
 uint32_t g_panelUntil = 0;    // до какого момента держать панель результата
 String   g_pendingPlugin;     // плагин, ждущий ответа пользователя (город)
+
+// --- меню настроек и панель плагинов ---
+size_t g_menuIndex = 0;
+size_t g_pluginIndex = 0;
+std::vector<std::string> g_pluginRows;   // как показать
+std::vector<std::string> g_pluginNames;  // что ставить/удалять
+bool     g_imuOk = false;
+uint32_t g_lastShake = 0;
 
 // --- Энергосбережение ---
 uint32_t g_lastActivity = 0;
@@ -454,6 +473,118 @@ void pollPowerTap() {
   }
 }
 
+// --- меню настроек и панель плагинов ---
+
+void drawPlugins() {
+  ui::list("Плагины", g_pluginRows, g_pluginIndex);
+}
+
+// Собирает список: доступные из репозитория + установленные, которых там нет.
+void buildPluginRows() {
+  g_pluginRows.clear();
+  g_pluginNames.clear();
+
+  for (const repo::Item& it : repo::available()) {
+    const bool inst = repo::installed(it.name.c_str());
+    const int have = repo::installedVersion(it.name.c_str());
+    std::string mark;
+    if (inst && it.version > have && have > 0) mark = "  обновить";
+    else if (inst) mark = "  стоит";
+    g_pluginRows.push_back(it.name + mark);
+    g_pluginNames.push_back(it.name);
+  }
+
+  std::vector<std::string> local;
+  plugins::names(local);
+  for (const std::string& n : local) {
+    if (repo::find(n.c_str()) != nullptr) continue;  // уже в списке
+    g_pluginRows.push_back(n + "  стоит");
+    g_pluginNames.push_back(n);
+  }
+}
+
+void togglePlugin(size_t i) {
+  if (i >= g_pluginNames.size()) return;
+  const std::string name = g_pluginNames[i];
+
+  if (repo::installed(name.c_str())) {
+    repo::remove(name.c_str());
+  } else {
+    std::string err;
+    if (!repo::install(name.c_str(), err)) {
+      ui::notice(("не поставить: " + err).c_str());
+      delay(1400);
+    }
+  }
+  plugins::begin();  // перечитать скрипты
+  buildPluginRows();
+  if (g_pluginIndex >= g_pluginRows.size()) {
+    g_pluginIndex = g_pluginRows.empty() ? 0 : g_pluginRows.size() - 1;
+  }
+  drawPlugins();
+}
+
+void enterPlugins() {
+  g_state = State::Plugins;
+  ui::list("Плагины", {"обновляю список..."}, 0);
+  repo::refresh();
+  buildPluginRows();
+  g_pluginIndex = 0;
+  drawPlugins();
+}
+
+void enterSettings() {
+  g_state = State::Settings;
+  g_menuIndex = 0;
+  ui::list("Настройки", {"Плагины"}, g_menuIndex);
+}
+
+void pollSettings() {
+  if (M5.BtnA.wasReleasedAfterHold()) { showIdle(); return; }
+  if (M5.BtnA.wasClicked()) { enterPlugins(); return; }
+}
+
+void pollPlugins() {
+  const size_t n = g_pluginRows.size();
+  if (M5.BtnB.wasClicked() && n > 0) {
+    g_pluginIndex = (g_pluginIndex + 1) % n;
+    drawPlugins();
+    return;
+  }
+  if (M5.BtnPWR.wasClicked() && n > 0) {
+    g_pluginIndex = (g_pluginIndex + n - 1) % n;
+    drawPlugins();
+    return;
+  }
+  if (M5.BtnA.wasReleasedAfterHold()) { enterSettings(); return; }
+  if (M5.BtnA.wasClicked() && n > 0) { togglePlugin(g_pluginIndex); return; }
+}
+
+// Тряска открывает настройки. Порог — заметно больше или меньше 1g,
+// с паузой, чтобы одно движение не открывало меню несколько раз.
+void checkShake() {
+  if (!g_imuOk) return;
+  if (g_state != State::Idle && g_state != State::Showing) return;
+  if (millis() - g_lastShake < 1500) return;
+
+  float ax = 0, ay = 0, az = 0;
+  if (!M5.Imu.getAccel(&ax, &ay, &az)) return;
+  const float mag = sqrtf(ax * ax + ay * ay + az * az);
+
+  // Настоящая тряска — это несколько подряд сильных отсчётов (~60 мс),
+  // а случайный толчок даёт один. Поэтому считаем попадания подряд.
+  static uint8_t hits = 0;
+  if (mag > 2.2f || mag < 0.3f) {
+    if (++hits < 3) return;
+    hits = 0;
+    g_lastShake = millis();
+    Serial.printf("[main] тряска (%.2f g) — настройки\n", mag);
+    enterSettings();
+  } else {
+    hits = 0;
+  }
+}
+
 }  // namespace
 
 void setup() {
@@ -477,7 +608,18 @@ void setup() {
   g_msgs = g_prefs.getUInt("msgs", 0);
   Serial.printf("[main] всего сообщений: %u\n", (unsigned)g_msgs);
 
-  // Плагины: из LittleFS, иначе встроенный набор.
+  // Акселерометр: тряска открывает настройки.
+  {
+    float ax = 0, ay = 0, az = 0;
+    for (int i = 0; i < 5 && !g_imuOk; ++i) {
+      g_imuOk = M5.Imu.getAccel(&ax, &ay, &az);
+      if (!g_imuOk) delay(50);
+    }
+    Serial.printf("[main] акселерометр: %s, тип %d, %.2f %.2f %.2f\n",
+                  g_imuOk ? "есть" : "нет", (int)M5.Imu.getType(), ax, ay, az);
+  }
+
+  // Плагины: скрипты из LittleFS.
   plugins::begin();
 
   const size_t total = wav::totalSize(kAudioBytes);
@@ -519,6 +661,10 @@ void loop() {
     markActivity();
   }
 
+  // Меню и панель — отдельные режимы: кнопки в них значат другое.
+  if (g_state == State::Settings) { pollSettings(); delay(20); return; }
+  if (g_state == State::Plugins) { pollPlugins(); delay(20); return; }
+
   // Боковая кнопка: тап — назад, удержание — сброс сессии.
   pollSideButton();
   // Верхняя кнопка: тап — вперёд.
@@ -537,6 +683,7 @@ void loop() {
   }
 
   pollIdlePower();
+  checkShake();
 
   delay(20);
 }

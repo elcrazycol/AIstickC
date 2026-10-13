@@ -330,6 +330,43 @@ void notice(const char* text) {
   M5.Display.print(text);
 }
 
+void list(const char* title, const std::vector<std::string>& items,
+          size_t index) {
+  Guard g;
+  M5.Display.fillScreen(kBlack);
+  statusBar();
+  useFontLocked();
+
+  M5.Display.setTextColor(kYellow, kBlack);
+  M5.Display.setCursor(kMargin, 24);
+  M5.Display.print(title);
+
+  constexpr size_t kVisible = 4;  // строк под заголовком
+  size_t first = 0;
+  if (items.size() > kVisible && index >= kVisible) {
+    first = index - kVisible + 1;
+  }
+
+  int y = 44;
+  for (size_t i = first; i < items.size() && i < first + kVisible; ++i) {
+    const bool sel = (i == index);
+    M5.Display.setTextColor(sel ? kWhite : kGray, kBlack);
+    if (sel) {
+      // Подсветка выбранной строки: полоска слева.
+      M5.Display.fillRect(0, y - 12, kScreenW, kLineH - 4, 0x18E3);
+    }
+    M5.Display.setCursor(kMargin + 6, y);
+    M5.Display.print(items[i].c_str());
+    y += kLineH;
+  }
+
+  if (items.empty()) {
+    M5.Display.setTextColor(kGray, kBlack);
+    M5.Display.setCursor(kMargin, 44);
+    M5.Display.print("пусто");
+  }
+}
+
 void holdProgress(int percent) {
   Guard g;
   if (percent < 0) percent = 0;
