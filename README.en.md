@@ -178,15 +178,19 @@ python3 tools/capture.py --monitor
 | **BtnA** (hold) | record; release to send |
 | **BtnB** (tap) | previous page |
 | **PWR** (tap, top) | next page |
+| **BtnB** (hold 1.5 s) | from the answer screen — back to the idle screen; the dialogue is kept |
+| **BtnB** (hold 3 s) | on the idle screen — reset the dialogue: bar → "History cleared" panel |
+| **Shake** | settings menu (first item — plugins) |
 
 Paging also works while an answer is still being written. A finished answer
 wraps around; one still in progress does not jump from start to end. The screen
 does not move on its own: as new text arrives, only the page count changes.
-| **BtnB** (hold 3 s) | reset session: bar → "History cleared" panel → idle |
-| **Shake** | settings menu (first item — plugins) |
 
-While BtnB is held, a progress bar grows at the bottom; the reset panel stays
-until you let go, so it cannot be missed.
+While BtnB is held, a progress bar grows at the bottom, so the countdown is
+visible. The reset panel stays until you let go, so it cannot be missed.
+
+Resetting the dialogue only works on the idle screen: from the answer screen the
+button simply goes back, so memory cannot be wiped by accident while reading.
 
 ## How it works
 

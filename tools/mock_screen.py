@@ -24,7 +24,10 @@ W, H = 240, 135
 STATUS_H = 14
 MARGIN = 2
 BODY_LINES = 5
-PAGE_BASE = 13      # счётчик страниц: в полосе состояния, по иконкам
+PAGE_BASE = 8       # центр строки состояния для счётчика страниц
+ASCENT = 14         # подъём шрифта (макс. -yOffset в таблице глифов)
+DESCENT = 4         # ниже базовой линии
+TEXT_H = ASCENT + DESCENT
 WAVE_BARS = 58
 WAVE_H = 30
 FIRST_BASE = 26
@@ -70,7 +73,12 @@ class Font:
                 return self.glyphs[cp - lo + base]
         return None
 
-    def text(self, img, s, x, baseline, color=WHITE, size=1):
+    def text(self, img, s, x, top, color=WHITE, size=1):
+        """top — верх строки текста, как cursor_y в M5GFX (не базовая линия!).
+
+        M5GFX рисует глиф на top + ASCENT + yOffset глифа. Проверено на
+        устройстве: cursor_y=20 даёт чернила в 23..35.
+        """
         px = img.load()
         for ch in s:
             g = self._glyph(ord(ch))
@@ -85,7 +93,7 @@ class Font:
                         for dy in range(size):
                             for dx in range(size):
                                 xx = x + (xo + col) * size + dx
-                                yy = baseline + (yo + row) * size + dy
+                                yy = top + (ASCENT + yo + row) * size + dy
                                 if 0 <= xx < W and 0 <= yy < H:
                                     px[xx, yy] = color
             x += adv * size
@@ -240,10 +248,11 @@ def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE):
         if idx >= len(lines):
             break
         font.text(img, lines[idx], MARGIN, FIRST_BASE + i * font.yadv, color)
-    # Счётчик «x/y» в верхнем левом углу, поверх полосы состояния.
+    # Счётчик «x/y» в верхнем левом углу полосы состояния. В прошивке он
+    # ставится датумом по центру строки — здесь та же арифметика.
     ind = f"{page + 1}/{total}"
     fill(img.load(), 0, 0, 6 * font.xadv, STATUS_H, BLACK)
-    font.text(img, ind, MARGIN, PAGE_BASE, GRAY)
+    font.text(img, ind, MARGIN, PAGE_BASE - TEXT_H // 2, GRAY)
     return img
 
 
@@ -294,10 +303,7 @@ def screen_list(font, title, rows, index, pct=78, rssi=4):
     px = img.load()
     status_bar(img, font, pct, rssi)
 
-    # cursor_y у GFXfont — верх строки, а mock рисует по базовой линии.
-    above = max(-g[5] for g in font.glyphs)
-
-    font.text(img, title, MARGIN, 24 + above, YELLOW)
+    font.text(img, title, MARGIN, 24, YELLOW)
 
     y = 44
     for i, (text, value, mark) in enumerate(rows):
@@ -305,11 +311,11 @@ def screen_list(font, title, rows, index, pct=78, rssi=4):
         if sel:
             fill(px, 0, y, W, y + 20, SEL_BG)
             fill(px, 0, y, 3, y + 20, YELLOW)
-        font.text(img, text, MARGIN + 6, y + above, WHITE if sel else GRAY)
+        font.text(img, text, MARGIN + 6, y, WHITE if sel else GRAY)
 
         if value:
             vx = W - MARGIN - font.width(value)
-            font.text(img, value, vx, y + above,
+            font.text(img, value, vx, y,
                       YELLOW if sel else (198, 198, 198))  # 0xC618
         else:
             cx, cy = W - 13, y + 8

@@ -318,9 +318,14 @@ void pageIndicator(size_t page, size_t total) {
   constexpr int kClearW = 6 * kFont_jbmono_XAdvance;  // с запасом на «12/12»
   M5.Display.fillRect(0, 0, kClearW, kStatusH, kBlack);
 
+  // M5GFX считает cursor_y верхом строки текста, а не базовой линией, поэтому
+  // вместо подбора числа ставим датум по центру: цифры ложатся ровно в строку
+  // иконок (4..13) и не поедут, если метрики шрифта поменяются.
+  M5.Display.setTextDatum(middle_left);
   M5.Display.setTextColor(kGray, kBlack);
   M5.Display.setCursor(kMargin, kPageBase);
   M5.Display.print(ind);
+  M5.Display.setTextDatum(top_left);
 }
 
 void notice(const char* text) {

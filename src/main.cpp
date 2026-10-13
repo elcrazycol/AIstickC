@@ -82,7 +82,7 @@ bool     g_textStarted = false;  // текст ответа уже пошёл (�
 
 // Удержание боковой кнопки: отсчёт и полоска — в модуле hold.
 hold::Watcher g_holdReset(M5.BtnB, kClearHoldMs);   // сброс истории
-hold::Watcher g_holdExit(M5.BtnB, kMenuExitHoldMs);  // выход из меню
+hold::Watcher g_holdExit(M5.BtnB, kBackHoldMs);      // «назад»: меню и ответ
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
 uint32_t g_panelUntil = 0;    // до какого момента держать панель результата
 String   g_pendingPlugin;     // плагин, ждущий ответа пользователя (город)
@@ -500,20 +500,33 @@ void pollSideButton() {
     return;
   }
 
-  switch (g_holdReset.poll()) {
-    case hold::Event::Fired:
-      g_history.clear();
-      ui::notice("История разговора очищена");
-      g_panelShownAt = millis();
-      return;
+  // Экран ответа: тап листает страницы, зажатие уводит на главный. Диалог
+  // при этом сохраняется — стереть его можно только с главного экрана.
+  if (g_state == State::Showing || g_state == State::Streaming) {
+    switch (g_holdExit.poll()) {
+      case hold::Event::Tap:
+        pageBy(-1);
+        return;
+      case hold::Event::Fired:
+        Serial.println("[main] назад на главный экран");
+        showIdle();
+        return;
+      default:
+        return;
+    }
+  }
 
-    case hold::Event::Tap:
-      // Короткий тап — страница назад.
-      if (g_state == State::Showing || g_state == State::Streaming) pageBy(-1);
-      return;
-
-    default:
-      return;
+  // Главный экран: зажатие — сброс диалога.
+  if (g_state == State::Idle) {
+    switch (g_holdReset.poll()) {
+      case hold::Event::Fired:
+        g_history.clear();
+        ui::notice("История разговора очищена");
+        g_panelShownAt = millis();
+        return;
+      default:
+        return;
+    }
   }
 }
 

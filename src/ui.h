@@ -23,7 +23,7 @@ namespace ui {
 constexpr int kStatusH   = 14;
 constexpr int kMargin    = 2;
 constexpr int kBodyLines = 5;
-constexpr int kPageBase  = 13;   // базовая линия счётчика страниц (по иконкам)
+constexpr int kPageBase  = 8;    // центр строки состояния для счётчика страниц
 
 // Полоса волн внизу экрана записи.
 constexpr int kWaveBars = 58;   // 58*(3+1)-1 = 231 px
