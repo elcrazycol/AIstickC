@@ -28,9 +28,14 @@ volatile bool s_dotsOn = false;
 uint8_t s_brightness = 255;           // исходная яркость подсветки
 
 // Доступ к дисплею только под мьютексом.
+//
+// Мьютекс рекурсивный: если «внешняя» функция под замком позовёт другую
+// «внешнюю», задача возьмёт замок второй раз и не встанет намертво. Именно на
+// этом однажды повесился экран настроек (statusBar внутри list) — лучше
+// подстраховаться, чем ловить чёрный экран.
 struct Guard {
-  Guard() { if (s_lock != nullptr) xSemaphoreTake(s_lock, portMAX_DELAY); }
-  ~Guard() { if (s_lock != nullptr) xSemaphoreGive(s_lock); }
+  Guard() { if (s_lock != nullptr) xSemaphoreTakeRecursive(s_lock, portMAX_DELAY); }
+  ~Guard() { if (s_lock != nullptr) xSemaphoreGiveRecursive(s_lock); }
 };
 
 // Ниже — только «внутренние» функции: вызывающий уже держит мьютекс.
@@ -192,7 +197,7 @@ void dotsTask(void*) {
 void begin() {
   useFontLocked();
   s_brightness = M5.Display.getBrightness();
-  s_lock = xSemaphoreCreateMutex();
+  s_lock = xSemaphoreCreateRecursiveMutex();
   xTaskCreatePinnedToCore(dotsTask, "ui_dots", 4096, nullptr, 1, nullptr, 0);
 }
 
@@ -334,7 +339,7 @@ void list(const char* title, const std::vector<std::string>& items,
           size_t index) {
   Guard g;
   M5.Display.fillScreen(kBlack);
-  statusBar();
+  statusBarLocked();  // не statusBar(): он берёт тот же мьютекс и вешает задачу
   useFontLocked();
 
   M5.Display.setTextColor(kYellow, kBlack);
@@ -352,8 +357,9 @@ void list(const char* title, const std::vector<std::string>& items,
     const bool sel = (i == index);
     M5.Display.setTextColor(sel ? kWhite : kGray, kBlack);
     if (sel) {
-      // Подсветка выбранной строки: полоска слева.
-      M5.Display.fillRect(0, y - 12, kScreenW, kLineH - 4, 0x18E3);
+      // Подсветка выбранной строки. Верх строки — это и есть cursor_y
+      // (так считает метрику GFXfont), поэтому полоска идёт ровно от y.
+      M5.Display.fillRect(0, y, kScreenW, kLineH - 4, 0x18E3);
     }
     M5.Display.setCursor(kMargin + 6, y);
     M5.Display.print(items[i].c_str());

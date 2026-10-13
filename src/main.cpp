@@ -548,12 +548,13 @@ void pollSettings() {
 void pollPlugins() {
   markActivity();  // обновление списка идёт с сетью — это тоже активность
   const size_t n = g_pluginRows.size();
-  if (M5.BtnB.wasClicked() && n > 0) {
+  // Как на главном экране: PWR — вперёд, BtnB — назад.
+  if (M5.BtnPWR.wasClicked() && n > 0) {
     g_pluginIndex = (g_pluginIndex + 1) % n;
     drawPlugins();
     return;
   }
-  if (M5.BtnPWR.wasClicked() && n > 0) {
+  if (M5.BtnB.wasClicked() && n > 0) {
     g_pluginIndex = (g_pluginIndex + n - 1) % n;
     drawPlugins();
     return;
@@ -652,6 +653,7 @@ void setup() {
     return;  // не блокируемся: BtnA попробует снова
   }
   showIdle();
+
 }
 
 void loop() {

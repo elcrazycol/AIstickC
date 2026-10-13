@@ -58,6 +58,7 @@ std::string cachePath(size_t i) {
 }
 
 std::string readFile(const std::string& path) {
+  if (!LittleFS.exists(path.c_str())) return std::string();  // не сорить в лог
   File f = LittleFS.open(path.c_str(), "r");
   if (!f) return std::string();
   const String s = f.readString();

@@ -217,8 +217,8 @@ panel lists what the repository offers, marked `стоит` (installed) or `об
 | Button | Action |
 |---|---|
 | **BtnA** (tap) | install / remove the selected plugin |
-| **BtnB** (tap) | next item |
-| **PWR** (tap) | previous item |
+| **PWR** (tap) | next item |
+| **BtnB** (tap) | previous item |
 | **BtnA** (hold) | back: panel → settings, settings → idle screen |
 
 Manifest addresses are listed in `config.h` (comma-separated):
