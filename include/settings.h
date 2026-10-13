@@ -41,6 +41,9 @@ constexpr size_t   kPluginPinsCount = sizeof(kPluginPins) / sizeof(kPluginPins[0
 // Максимальная пауза внутри скрипта, мс.
 constexpr uint32_t kPluginSleepMaxMs = 5000;
 
+// Максимум тела ответа для плагинов и репозиториев (манифест, вебхук).
+constexpr size_t   kMaxFetchBytes   = 32768;
+
 // --- Прочее ---
 constexpr uint32_t kSerialBaud      = 115200;
 

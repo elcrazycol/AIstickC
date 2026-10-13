@@ -13,6 +13,7 @@
 #include "pure/http_response.h"
 #include "pure/json_extract.h"
 #include "pure/weather_text.h"
+#include "webfetch.h"
 
 namespace scripthost {
 
@@ -49,65 +50,6 @@ bool pinAllowed(int pin) {
 }
 
 // Кодирование пути: кириллица и пробелы -> %XX, остальное как есть.
-std::string encodePath(const std::string& path) {
-  std::string out;
-  for (unsigned char c : path) {
-    if (c >= 0x80 || c == ' ') {
-      char b[8];
-      snprintf(b, sizeof(b), "%%%02X", c);
-      out += b;
-    } else {
-      out.push_back((char)c);
-    }
-  }
-  return out;
-}
-
-// Общий GET/POST по https. Возвращает тело, err — причину отказа.
-bool httpsRequest(const std::string& method, const std::string& url,
-                  const std::string& body, std::string& out, std::string& err) {
-  if (url.rfind("https://", 0) != 0) {
-    err = "нужен https";
-    return false;
-  }
-  const std::string rest = url.substr(8);
-  const size_t slash = rest.find('/');
-  const std::string host = (slash == std::string::npos) ? rest : rest.substr(0, slash);
-  const std::string path =
-      encodePath((slash == std::string::npos) ? "/" : rest.substr(slash));
-  if (host.empty()) { err = "нет хоста"; return false; }
-
-  WiFiClientSecure& c = net::tlsClient();
-  c.setTimeout(kHttpConnectMs);
-  if (!c.connect(host.c_str(), 443)) { err = "нет связи с " + host; return false; }
-  c.setTimeout(kHttpReadMs);
-
-  char head[420];
-  snprintf(head, sizeof(head),
-           "%s %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: aistick/0.1\r\n"
-           "Content-Type: application/json\r\nContent-Length: %u\r\n"
-           "Connection: close\r\n\r\n",
-           method.c_str(), path.c_str(), host.c_str(), (unsigned)body.size());
-  const uint32_t t0 = millis();
-  if (!net::writeAll(c, (const uint8_t*)head, strlen(head), t0) ||
-      (!body.empty() &&
-       !net::writeAll(c, (const uint8_t*)body.data(), body.size(), t0))) {
-    c.stop();
-    err = "обрыв отправки";
-    return false;
-  }
-  const String raw = net::readAll(c, t0, kMaxSttResponse * 4);
-  c.stop();
-
-  const int code = httpr::parseStatus(raw.c_str());
-  const int sep = raw.indexOf("\r\n\r\n");
-  out = (sep >= 0) ? std::string(raw.substring(sep + 4).c_str()) : std::string();
-  if (code != 200) {
-    err = "HTTP " + std::to_string(code);
-    return false;
-  }
-  return true;
-}
 
 }  // namespace
 
@@ -203,46 +145,22 @@ bool Host::call(const std::string& name,
   // --- сеть ---
   if (name == "http") {
     std::string resp;
-    if (!httpsRequest(argStr(args, 0), argStr(args, 1), argStr(args, 2), resp, err)) {
+    if (!webfetch::request(argStr(args, 0), argStr(args, 1), argStr(args, 2), "",
+                           resp, err)) {
       return false;
     }
     out = script::Value::ofStr(resp);
     return true;
   }
   if (name == "proxy_post") {
-    const std::string body = argStr(args, 1);
-    WiFiClientSecure& c = net::tlsClient();
-    c.setTimeout(kHttpConnectMs);
-    if (!c.connect(PROXY_HOST, PROXY_PORT)) {
-      err = "нет связи с прокси";
+    const std::string url = std::string("https://") + PROXY_HOST + ":" +
+                            std::to_string(PROXY_PORT) + argStr(args, 0);
+    std::string resp;
+    if (!webfetch::request("POST", url, argStr(args, 1),
+                           std::string("X-Auth: ") + PROXY_TOKEN, resp, err)) {
       return false;
     }
-    c.setTimeout(kHttpReadMs);
-    char head[400];
-    snprintf(head, sizeof(head),
-             "POST %s HTTP/1.1\r\nHost: %s\r\nX-Auth: %s\r\n"
-             "Content-Type: application/json\r\nContent-Length: %u\r\n"
-             "Connection: close\r\n\r\n",
-             argStr(args, 0).c_str(), PROXY_HOST, PROXY_TOKEN,
-             (unsigned)body.size());
-    const uint32_t t0 = millis();
-    if (!net::writeAll(c, (const uint8_t*)head, strlen(head), t0) ||
-        (!body.empty() &&
-         !net::writeAll(c, (const uint8_t*)body.data(), body.size(), t0))) {
-      c.stop();
-      err = "обрыв отправки";
-      return false;
-    }
-    const String raw = net::readAll(c, t0, kMaxSttResponse);
-    c.stop();
-    const int code = httpr::parseStatus(raw.c_str());
-    const int sep = raw.indexOf("\r\n\r\n");
-    out = script::Value::ofStr(sep >= 0 ? std::string(raw.substring(sep + 4).c_str())
-                                        : std::string());
-    if (code != 200) {
-      err = "прокси: HTTP " + std::to_string(code);
-      return false;
-    }
+    out = script::Value::ofStr(resp);
     return true;
   }
 
