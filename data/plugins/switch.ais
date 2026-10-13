@@ -1,0 +1,12 @@
+# name: switch
+# description: Включить, выключить или переключить выключатель. channel: 1, 2, 3 — конкретный канал, all — весь свет сразу. Вызывай всегда, когда просят включить, выключить или переключить свет или выключатель.
+# params: channel=1|2|3|all, state*=on|off|toggle
+
+body = "{\"channel\":\"" + channel + "\",\"state\":\"" + state + "\"}"
+
+r = proxy_post("/tuya", body)
+st = json(r, "state")
+if st == "on" { st = "вкл" } else { st = "выкл" }
+
+if channel == "all" { show("весь свет " + st) }
+else { show("канал " + channel + " " + st) }

@@ -163,9 +163,9 @@ void showError(const char* text) {
 void showPluginResult(const plugins::Result& pr) {
   g_state = State::Showing;
 
-  if (pr.ask != nullptr) {          // нужно спросить пользователя
-    ui::notice(pr.ask);
-    g_pendingPlugin = pr.plugin;
+  if (!pr.ask.empty()) {          // нужно спросить пользователя
+    ui::notice(pr.ask.c_str());
+    g_pendingPlugin = pr.plugin.c_str();
     return;
   }
   if (pr.asAnswer) {                // длинный результат — как ответ
@@ -176,7 +176,7 @@ void showPluginResult(const plugins::Result& pr) {
     return;
   }
   char panel[96];
-  snprintf(panel, sizeof(panel), "%s: %s", pr.plugin, pr.text.c_str());
+  snprintf(panel, sizeof(panel), "%s: %s", pr.plugin.c_str(), pr.text.c_str());
   ui::notice(panel);
   g_panelUntil = millis() + kPluginPanelMs;
 }
@@ -348,7 +348,7 @@ void runQuestion() {
     showPluginResult(pr);
 
     // Плагин может попросить модель прокомментировать результат.
-    if (pr.answerAfter && pr.ask == nullptr) {
+    if (pr.answerAfter && pr.ask.empty()) {
       g_stream = "";
       startWaiting();
       llm::Options fu;

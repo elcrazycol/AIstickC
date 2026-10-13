@@ -34,6 +34,13 @@ constexpr uint32_t kDeepSleepMs = 3600000;
 // Сколько держится панель результата плагина, прежде чем уйти в главный экран.
 constexpr uint32_t kPluginPanelMs = 2500;
 
+// --- Плагины ---
+// Пины, которые разрешено дёргать скриптам-плагинам (белый список).
+constexpr int      kPluginPins[]    = {26, 25};
+constexpr size_t   kPluginPinsCount = sizeof(kPluginPins) / sizeof(kPluginPins[0]);
+// Максимальная пауза внутри скрипта, мс.
+constexpr uint32_t kPluginSleepMaxMs = 5000;
+
 // --- Прочее ---
 constexpr uint32_t kSerialBaud      = 115200;
 

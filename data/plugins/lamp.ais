@@ -1,0 +1,14 @@
+# name: lamp
+# description: Включить, выключить или переключить лампу на GPIO26. Вызывай всегда, когда просят включить, выключить или переключить лампу.
+# params: state*=on|off|toggle
+
+cur = gpio_get(26)
+want = 0
+
+if state == "on" { want = 1 }
+else if state == "off" { want = 0 }
+else { if cur == 1 { want = 0 } else { want = 1 } }
+
+gpio(26, want)
+
+if want == 1 { show("лампа вкл") } else { show("лампа выкл") }

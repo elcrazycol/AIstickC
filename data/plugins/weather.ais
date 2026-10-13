@@ -1,0 +1,10 @@
+# name: weather
+# description: Узнать погоду на сегодня в городе. Вызывай, когда спрашивают про погоду. Если город не назван — вызови без параметра city.
+# params: city
+
+if city == "" {
+  ask("Какой ваш город?")
+} else {
+  raw = http("GET", "https://wttr.in/" + city + "?format=%l|%C|%t|%f|%w|%h")
+  answer(weather_text(raw))
+}
