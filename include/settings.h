@@ -18,7 +18,8 @@ constexpr size_t   kAudioBytes      = (size_t)kSampleRate * 2 *
 // Срабатывает, не дожидаясь отпускания.
 constexpr uint32_t kClearHoldMs     = 3000;
 // Удержание BtnB в меню настроек — выход (та же полоска, что и у сброса).
-constexpr uint32_t kMenuExitHoldMs  = 3000;
+// Короче, чем сброс истории: в меню это просто «назад», ждать долго незачем.
+constexpr uint32_t kMenuExitHoldMs  = 1500;
 
 // --- Экран ---
 constexpr int      kScreenRotation  = 1;       // ландшафт: 1 или 3

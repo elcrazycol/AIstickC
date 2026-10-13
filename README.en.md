@@ -230,7 +230,7 @@ The mark on the right of a name tells what the stick has:
 | **BtnA** (tap) | install / remove the selected plugin |
 | **PWR** (tap) | next item |
 | **BtnB** (tap) | previous item |
-| **BtnB** (hold 3 s) | back: panel → settings, settings → idle screen (same progress bar as the history reset) |
+| **BtnB** (hold 1.5 s) | back: panel → settings, settings → idle screen (same progress bar as the history reset) |
 
 Manifest addresses are listed in `config.h` (comma-separated):
 
