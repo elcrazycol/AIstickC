@@ -24,7 +24,7 @@ W, H = 240, 135
 STATUS_H = 14
 MARGIN = 2
 BODY_LINES = 5
-PAGE_BASE = 131
+PAGE_BASE = 12      # счётчик страниц: верхний левый угол
 WAVE_BARS = 58
 WAVE_H = 30
 FIRST_BASE = 26
@@ -240,9 +240,10 @@ def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE):
         if idx >= len(lines):
             break
         font.text(img, lines[idx], MARGIN, FIRST_BASE + i * font.yadv, color)
-    if total > 1:
-        ind = f"{page + 1}/{total}"
-        font.text(img, ind, W - MARGIN - font.width(ind), PAGE_BASE, GRAY)
+    # Счётчик «x/y» в верхнем левом углу, поверх полосы состояния.
+    ind = f"{page + 1}/{total}"
+    fill(img.load(), 0, 0, 6 * font.xadv, STATUS_H, BLACK)
+    font.text(img, ind, MARGIN, PAGE_BASE, GRAY)
     return img
 
 

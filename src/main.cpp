@@ -74,7 +74,10 @@ size_t  g_waveN = 0;
 
 uint32_t g_lastDraw = 0;     // троттлинг перерисовок текста
 String   g_stream;           // накопленный текст ответа
-bool     g_textStarted = false;
+// Листание. g_followTail — идти ли за «живым» краем: пока ответ пишется,
+// последняя страница растёт, и на ней показывается свежий текст.
+size_t   g_drawnPage = 0;      // что сейчас на экране
+bool     g_followTail = true;  // держаться последней страницы
 
 // Удержание боковой кнопки: отсчёт и полоска — в модуле hold.
 hold::Watcher g_holdReset(M5.BtnB, kClearHoldMs);   // сброс истории
@@ -180,10 +183,29 @@ uint8_t peakOf(const int16_t* s, size_t n) {
 
 // Экран ответа: текст + индикатор страниц.
 void drawAnswer(size_t page) {
+  g_page = page;
+  g_drawnPage = page;
   ui::dotsStop();
   ui::answerReset();
   ui::answerText(g_lines, page * ui::kBodyLines, g_color);
   ui::pageIndicator(page, textwrap::pageCount(g_lines.size(), ui::kBodyLines));
+}
+
+// Листание. Работает и во время стрима: готовые страницы можно читать,
+// пока пишется остальное. Готовый ответ листается по кругу, а недописанный —
+// без прыжков с начала в конец, и на последней странице снова идём за текстом.
+void pageBy(int delta) {
+  const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
+  if (total <= 1) return;
+
+  const int last = (int)total - 1;
+  int next = (int)g_page + delta;
+  if (next < 0) next = (g_state == State::Showing) ? last : 0;
+  if (next > last) next = (g_state == State::Showing) ? 0 : last;
+
+  g_followTail = (next == last);
+  Serial.printf("[main] страница %d/%d\n", next + 1, last + 1);
+  drawAnswer((size_t)next);
 }
 
 void showError(const char* text) {
@@ -225,7 +247,8 @@ void showIdle() {
 
 // Начало фазы ожидания: чистый экран и запущенная анимация точек.
 void startWaiting() {
-  g_textStarted = false;
+  g_drawnPage = (size_t)-1;  // на экране ещё не текст: первый кадр всё сотрёт
+  g_followTail = true;
   g_lastDraw = 0;
   ui::answerReset();
   ui::dotsStart();
@@ -241,12 +264,25 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
   g_lastDraw = now;
 
   wrapInto(g_stream.c_str(), g_lines);
-  if (!g_textStarted) {
-    g_textStarted = true;
-    ui::dotsStop();
-    ui::answerReset();  // стереть точки перед первым текстом
+  const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
+  if (total == 0) return;
+
+  // Держимся последней страницы: счётчик растёт вместе с текстом, а если
+  // пользователь ушёл читать готовое, его не дёргаем.
+  if (g_followTail && g_page != total - 1) {
+    Serial.printf("[main] страница %u/%u — ответ дописывается\n",
+                  (unsigned)total, (unsigned)total);
   }
-  ui::answerText(g_lines, 0, kWhite);
+  if (g_followTail) g_page = total - 1;
+  if (g_page >= total) g_page = total - 1;
+
+  if (g_page != g_drawnPage) {
+    // Страница сменилась — старые строки надо стереть, иначе останутся хвосты.
+    drawAnswer(g_page);
+  } else {
+    ui::answerText(g_lines, g_page * ui::kBodyLines, kWhite);
+    ui::pageIndicator(g_page, total);
+  }
 }
 
 // Захват audioBytes байт в PSRAM. Возвращает число записанных байт.
@@ -462,16 +498,8 @@ void pollSideButton() {
       return;
 
     case hold::Event::Tap:
-      // Короткий тап — листание назад, закольцованно.
-      if (g_state == State::Showing) {
-        const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
-        if (total > 1) {
-          g_page = (g_page + total - 1) % total;
-          Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
-                        (unsigned)total);
-          drawAnswer(g_page);
-        }
-      }
+      // Короткий тап — страница назад.
+      if (g_state == State::Showing || g_state == State::Streaming) pageBy(-1);
       return;
 
     default:
@@ -483,13 +511,7 @@ void pollSideButton() {
 void pollPowerTap() {
   if (g_panelShownAt != 0) return;  // панель сброса важнее
   if (!M5.BtnPWR.wasClicked()) return;
-  const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
-  if (g_state == State::Showing && total > 1) {
-    g_page = (g_page + 1) % total;
-    Serial.printf("[main] страница %u/%u\n", (unsigned)(g_page + 1),
-                  (unsigned)total);
-    drawAnswer(g_page);
-  }
+  if (g_state == State::Showing || g_state == State::Streaming) pageBy(1);
 }
 
 // --- меню настроек и панель плагинов ---

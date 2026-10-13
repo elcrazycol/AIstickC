@@ -23,7 +23,7 @@ namespace ui {
 constexpr int kStatusH   = 14;
 constexpr int kMargin    = 2;
 constexpr int kBodyLines = 5;
-constexpr int kPageBase  = 131;  // базовая линия индикатора страниц
+constexpr int kPageBase  = 12;   // базовая линия счётчика страниц (верх)
 
 // Полоса волн внизу экрана записи.
 constexpr int kWaveBars = 58;   // 58*(3+1)-1 = 231 px
@@ -58,6 +58,8 @@ void dotsStop();
 void answerText(const std::vector<std::string>& lines, size_t from, int color);
 
 // Индикатор страниц внизу справа.
+// Счётчик страниц «x/y» в верхнем левом углу. Показывается всегда, в том
+// числе во время стрима, когда y ещё растёт.
 void pageIndicator(size_t page, size_t total);
 
 // Панель с коротким уведомлением по центру (например, о сбросе истории).

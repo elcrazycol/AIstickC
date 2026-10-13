@@ -178,6 +178,10 @@ python3 tools/capture.py --monitor
 | **BtnA** (hold) | record; release to send |
 | **BtnB** (tap) | previous page |
 | **PWR** (tap, top) | next page |
+
+Paging also works while an answer is still being written. A finished answer
+wraps around; one still in progress does not jump from start to end, and on the
+last page the screen follows the text again.
 | **BtnB** (hold 3 s) | reset session: bar → "History cleared" panel → idle |
 | **Shake** | settings menu (first item — plugins) |
 
@@ -201,7 +205,11 @@ incrementally, so memory does not grow with stream length.
 request stays small. A sent-message counter lives in NVS and survives power-off.
 
 **Display.** A custom monospace font (ASCII + Cyrillic + typography: dashes,
-quotes, ellipsis). Text is wrapped by words and paginated. While work is in
+quotes, ellipsis). Text is wrapped by words and paginated; the `x/y` counter sits
+in the top-left corner. While an answer is being written, `y` grows with the
+text, and finished pages can be flipped through without waiting for the end: the
+screen holds the last page, and if you go back to read, it stays where you left
+it. While work is in
 progress, three flowing dots are animated by a separate task on the second core
 (network calls block, so from the main loop the animation froze on the TLS
 handshake).

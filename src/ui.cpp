@@ -308,12 +308,18 @@ void answerText(const std::vector<std::string>& lines, size_t from, int color) {
 void pageIndicator(size_t page, size_t total) {
   Guard g;
   useFontLocked();
-  if (total <= 1) return;
+
   char ind[16];
   snprintf(ind, sizeof(ind), "%u/%u", (unsigned)(page + 1), (unsigned)total);
+
+  // Верхний левый угол: в полосе состояния слева пусто (батарея и палочки
+  // справа), поэтому счётчику там никто не мешает. Полоску под ним чистим:
+  // иначе от прошлого числа останутся хвосты, когда оно станет короче.
+  constexpr int kClearW = 6 * kFont_jbmono_XAdvance;  // с запасом на «12/12»
+  M5.Display.fillRect(0, 0, kClearW, kStatusH, kBlack);
+
   M5.Display.setTextColor(kGray, kBlack);
-  M5.Display.setCursor(kScreenW - kMargin - M5.Display.textWidth(ind),
-                       kPageBase);
+  M5.Display.setCursor(kMargin, kPageBase);
   M5.Display.print(ind);
 }
 
