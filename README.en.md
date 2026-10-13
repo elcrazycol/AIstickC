@@ -97,14 +97,19 @@ aistick/
 │  ├─ net.cpp/.h          Wi-Fi and the shared TLS client
 │  ├─ stt.cpp/.h          request to the proxy → Whisper
 │  ├─ llm.cpp/.h          streamed request to OpenCode Go (SSE)
-│  ├─ plugins.cpp/.h      plugins: table and actions
+│  ├─ plugins.cpp/.h      plugins: script loading and execution
+│  ├─ script_host.cpp/.h  whitelist of functions for scripts
+│  ├─ repo.cpp/.h         repositories: manifests, install, versions
+│  ├─ webfetch.cpp/.h     https requests (shared by plugins and repositories)
 │  └─ pure/               pure modules: no Arduino, tested on a Mac
 │     ├─ chat_history.h   dialogue memory with trimming
 │     ├─ chunked.h        incremental chunked decoder
 │     ├─ http_response.h  HTTP response parsing
 │     ├─ json_extract.h   extract fields by path
 │     ├─ llm_request.h    build the JSON request
-│     ├─ plugin_file.h    plugin file parser
+│     ├─ plugin_meta.h    script header → tool description
+│     ├─ plugin_repo.h    repository manifest parsing
+│     ├─ script.h         the plugin language interpreter
 │     ├─ sse.h            Server-Sent Events parsing
 │     ├─ text_wrap.h      UTF-8 wrap by pixels + pagination
 │     ├─ tool_call.h      tools for the model and its call parsing
@@ -117,7 +122,7 @@ aistick/
 │  ├─ font_jbmono.h       generated Cyrillic font
 │  └─ idle_image.h        generated idle-screen picture
 ├─ data/
-│  └─ plugins.txt         plugins (uploaded to LittleFS)
+│  └─ plugins/*.ais       plugins (uploaded to LittleFS)
 ├─ partitions.csv         partition table: 3 MB app, 4 MB LittleFS
 ├─ tools/
 │  ├─ run_tests.sh        run the tests (clang++, no hardware)
@@ -151,7 +156,8 @@ bash deploy/fill-config.sh <your-domain> 9443   # writes PROXY_* into config.h
 # 4. Flash
 pio run -e esp32dev -t upload
 
-# 5. Plugins (filesystem; after this, edit without rebuilding)
+# 5. Plugins: flash the starting set into the filesystem
+#    (after that, install and update straight from the stick — shake it)
 pio run -e esp32dev -t uploadfs
 
 # 6. Device log (opens the port and resets the board itself)
@@ -166,6 +172,7 @@ python3 tools/capture.py --monitor
 | **BtnB** (tap) | previous page |
 | **PWR** (tap, top) | next page |
 | **BtnB** (hold 3 s) | reset session: bar → "History cleared" panel → idle |
+| **Shake** | settings menu (first item — plugins) |
 
 While BtnB is held, a progress bar grows at the bottom; the reset panel stays
 until you let go, so it cannot be missed.
@@ -197,37 +204,94 @@ handshake).
 The model itself decides when to call a tool (tool calling) — by the meaning of
 the phrase, not by keywords.
 
-Plugins live in `data/plugins.txt` and are read at boot. To apply a change the
-firmware does **not** need rebuilding — only the filesystem is reflashed:
+A plugin is a **script** in a tiny built-in language: an `.ais` file in
+`/plugins` on LittleFS. Installing or removing a plugin needs no firmware
+rebuild.
 
-```bash
-pio run -e esp32dev -t uploadfs
+### Plugin panel
+
+**Shake the stick** — the settings menu opens, the first item is "Plugins". The
+panel lists what the repository offers, marked `стоит` (installed) or `обновить`
+(update available), plus installed plugins that are no longer in the repository.
+
+| Button | Action |
+|---|---|
+| **BtnA** (tap) | install / remove the selected plugin |
+| **BtnB** (tap) | next item |
+| **PWR** (tap) | previous item |
+| **BtnA** (hold) | back: panel → settings, settings → idle screen |
+
+Manifest addresses are listed in `config.h` (comma-separated):
+
+```c
+#define PLUGIN_REPOS "https://raw.githubusercontent.com/<user>/<repo>/<branch>/index.txt"
 ```
 
-The format is blocks separated by a blank line, with `key = value` lines:
+The manifest is cached in LittleFS, so with no network the panel still shows the
+last good list instead of nothing. A broken script cannot brick the stick: it
+simply fails to load.
+
+### Your own repository
+
+Put the script files next to the manifest. The manifest uses the same blank-line
+separated blocks with `key = value` lines:
 
 ```
-name = set_lamp
-description = Turn the lamp on GPIO26 on, off or toggle it
-kind = gpio
-pin = 26
+name = switch
+description = Turn the switch on, off or toggle it
+params = channel=1|2|3|all, state*=on|off|toggle
+file = switch.ais
+version = 1
 ```
 
 | Key | Meaning |
 |---|---|
 | `name` | function name for the model, latin |
 | `description` | what it does; the model decides by this |
-| `kind` | `gpio` · `screen` · `http` · `weather` · `tuya` |
-| `pin` | for `gpio`: pin number |
-| `url` | for `http`: address (https) |
-| `answer` | `true` — also ask the model to comment on the result |
+| `params` | argument description; `*` marks a required one |
+| `file` | script file name next to the manifest |
+| `version` | number; if the repository has a higher one, the panel shows `обновить` |
 
-The argument schema is derived from `kind`: `gpio` expects `state`
-(on/off/toggle), `screen` — `text`, `http` — an optional `query`, `weather` — an
-optional `city`, `tuya` — a channel (1..3) and `state`. If the file is missing,
-the built-in set is used, so the device works without it.
+A ready example is the
+[aistick-plugins](https://github.com/elcrazycol/aistick-plugins) repository.
 
-`tuya` controls a smart switch **through the VPS proxy**: the stick sends
+### Script format
+
+Metadata goes into the leading `#` comment header, the body follows:
+
+```
+# name: weather
+# description: Get today's weather in a city. If no city is given, call without the city parameter.
+# params: city
+
+if city == "" {
+  ask("Which city?")
+} else {
+  raw = http("GET", "https://wttr.in/" + city + "?format=%l|%C|%t|%f|%w|%h")
+  answer(weather_text(raw))
+}
+```
+
+Arguments arrive as variables (`city`, `state`, `channel`). The language is
+deliberately tiny: numbers, strings, `if`/`else`, `while` with a step cap, host
+calls. A script has no file access, no arbitrary pins and no secrets — only a
+whitelist of functions is available:
+
+| Function | Purpose |
+|---|---|
+| `show(text)` | short panel on the stick screen |
+| `answer(text)` | long answer, like the model's |
+| `ask(text)` | clarifying question; the next utterance goes to the plugin |
+| `http(method, url[, body])` | https request |
+| `proxy_post(path, body)` | POST to our proxy with `X-Auth` (the secret stays hidden) |
+| `gpio(pin, value)` · `gpio_get(pin)` | whitelisted pins only |
+| `json(text, path)` | extract a field: `state` or `a/[0]/b` |
+| `len` · `str` · `num` · `contains` · `log` · `sleep` | small helpers |
+
+A script runs in its own task with stack and step limits, so a hanging plugin
+fails instead of taking the stick down.
+
+The Tuya switch is controlled **through the VPS proxy**: the stick sends
 `POST /tuya` with the shared `X-Auth`, and the server talks to the Tuya cloud.
 Tuya secrets stay on the server — the firmware has none. Setup is described in
 [deploy/README.md](deploy/README.md).
@@ -238,14 +302,10 @@ it goes to the plugin. Weather comes from `wttr.in` (no key), and the answer is
 assembled into Russian: the condition is translated with a dictionary, and the
 wind arrow, which the font lacks, is stripped.
 
-When a plugin runs, a short result panel appears and disappears back to the
-idle screen by itself after a couple of seconds. The exchange is deliberately
-**not** stored in the dialogue memory: otherwise the model starts copying the
-note as text instead of calling the tool.
-
-Adding a plugin means adding a table row and rebuilding. The next step is moving
-the table into LittleFS so a plugin can be dropped in as a file without
-rebuilding.
+When a plugin runs, a short result panel appears and disappears back to the idle
+screen by itself after a couple of seconds. The exchange is deliberately **not**
+stored in the dialogue memory: otherwise the model starts copying the note as
+text instead of calling the tool.
 
 ## Tests
 
@@ -291,9 +351,9 @@ hardware and real APIs changed the plan:
 ## Roadmap
 
 **Done:** milestones 0–2 (hardware, recognition, reply), UI with its own font,
-dialogue memory, streaming, idle-screen picture and battery, power saving, the
-plugin system (tool calling: GPIO, screen, HTTP) with the table in LittleFS —
-a plugin is added as a file without rebuilding.
+dialogue memory, streaming, idle-screen picture and battery, power saving,
+plugin system v2: scripts in LittleFS, a plugin panel opened by shaking, install
+and update from repositories — no rebuild and no cable.
 
 **Remaining:**
 
@@ -302,8 +362,6 @@ a plugin is added as a file without rebuilding.
 - A distinct "Did not catch that" message for empty recognition.
 - Auto-return to IDLE 5 s after an error.
 - Cancelling a recording with a button.
-- Uploading the plugin file without a cable (a tiny web server on the stick or
-  a serial transfer) — today `uploadfs` over USB is required.
 
 **Not verified on hardware:** waking from deep sleep and maximum-length (15 s)
 recording — both were exercised only at smaller scales.
