@@ -21,9 +21,10 @@ namespace toolx {
 
 // Что делает плагин, когда модель его вызвала.
 enum class Kind {
-  Gpio,    // дёрнуть пин (state: on/off/toggle)
-  Screen,  // показать текст (text)
-  Http,    // запрос на URL (query — необязательный параметр)
+  Gpio,     // дёрнуть пин (state: on/off/toggle)
+  Screen,   // показать текст (text)
+  Http,     // запрос на URL (query — необязательный параметр)
+  Weather,  // погода на сегодня (city — необязательный параметр)
 };
 
 struct Plugin {

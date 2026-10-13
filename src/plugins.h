@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 
 #include "pure/tool_call.h"
 
@@ -28,13 +29,18 @@ const char* toolsJson();
 // Результат выполнения плагина.
 struct Result {
   bool ok = false;
-  const char* plugin = "";    // имя плагина
-  char detail[64] = {0};      // короткая строка для панели и для модели
-  bool answerAfter = false;   // просить ли модель прокомментировать
+  const char* plugin = "";     // имя плагина
+  std::string text;            // текст результата (панель или ответ)
+  bool asAnswer = false;       // показать как обычный ответ, а не панелью
+  const char* ask = nullptr;   // спросить пользователя этим текстом
+  bool answerAfter = false;    // просить ли модель прокомментировать
 };
 
-// Выполняет вызванный плагин. name — имя функции, argsJson — аргументы от
-// модели (уже собранные из стрима).
+// Выполняет вызванный плагином действие.
+// name — имя функции, argsJson — аргументы от модели (собраны из стрима).
 Result run(const char* name, const char* argsJson);
+
+// Ответ пользователя на вопрос плагина (например, город для погоды).
+Result runInput(const char* name, const char* userText);
 
 }  // namespace plugins

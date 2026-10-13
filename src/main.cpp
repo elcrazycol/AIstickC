@@ -67,6 +67,7 @@ uint32_t g_btnStart = 0;
 bool     g_btnArmed = false;  // нажатие ещё не отработано
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
 uint32_t g_panelUntil = 0;    // до какого момента держать панель результата
+String   g_pendingPlugin;     // плагин, ждущий ответа пользователя (город)
 
 // --- Энергосбережение ---
 uint32_t g_lastActivity = 0;
@@ -155,6 +156,29 @@ void showError(const char* text) {
   g_page = 0;
   wrapInto(text, g_lines);
   drawAnswer(g_page);
+}
+
+// Показ результата плагина: вопрос панелью, обычный результат — панелью на
+// пару секунд, длинный (погода) — как обычный ответ с пагинацией.
+void showPluginResult(const plugins::Result& pr) {
+  g_state = State::Showing;
+
+  if (pr.ask != nullptr) {          // нужно спросить пользователя
+    ui::notice(pr.ask);
+    g_pendingPlugin = pr.plugin;
+    return;
+  }
+  if (pr.asAnswer) {                // длинный результат — как ответ
+    g_color = pr.ok ? kWhite : kRed;
+    g_page = 0;
+    wrapInto(pr.text.c_str(), g_lines);
+    drawAnswer(g_page);
+    return;
+  }
+  char panel[96];
+  snprintf(panel, sizeof(panel), "%s: %s", pr.plugin, pr.text.c_str());
+  ui::notice(panel);
+  g_panelUntil = millis() + kPluginPanelMs;
 }
 
 void showIdle() {
@@ -291,6 +315,17 @@ void runQuestion() {
   }
   Serial.printf("[main] текст: %s\n", s.text.c_str());
 
+  // Плагин ждёт ответа (например, город для погоды): это ответ ему, а не
+  // вопрос модели.
+  if (!g_pendingPlugin.isEmpty()) {
+    const String pending = g_pendingPlugin;
+    g_pendingPlugin = "";
+    const plugins::Result pr =
+        plugins::runInput(pending.c_str(), s.text.c_str());
+    showPluginResult(pr);
+    return;
+  }
+
   // Сообщение отправляем — увеличиваем счётчик и сохраняем в NVS.
   ++g_msgs;
   g_prefs.putUInt("msgs", g_msgs);
@@ -306,29 +341,21 @@ void runQuestion() {
   opt.toolsJson = plugins::toolsJson();
   llm::Reply a = llm::ask(g_history.messages(), s.text, st, opt);
 
-  // Модель вызвала плагин — выполняем действие и показываем панель.
+  // Модель вызвала плагин — выполняем действие.
   if (a.ok && a.toolCall) {
     const plugins::Result pr =
         plugins::run(a.toolName.c_str(), a.toolArgs.c_str());
-    g_state = State::Showing;
-    char panel[72];
-    snprintf(panel, sizeof(panel), "%s: %s", a.toolName.c_str(), pr.detail);
-    ui::notice(panel);
-    // Панель результата сама уходит в главный экран.
-    g_panelUntil = millis() + kPluginPanelMs;
-    // В память диалога вызов НЕ пишем: если записать его как «ответ
-    // ассистента», модель начинает копировать пометку текстом вместо
-    // вызова инструмента. Плагины stateless, память им не нужна.
+    showPluginResult(pr);
 
     // Плагин может попросить модель прокомментировать результат.
-    if (pr.answerAfter) {
+    if (pr.answerAfter && pr.ask == nullptr) {
       g_stream = "";
       startWaiting();
       llm::Options fu;
       fu.toolCallId = a.toolId.c_str();
       fu.toolName = a.toolName.c_str();
       fu.toolArgs = a.toolArgs.c_str();
-      fu.toolResult = pr.detail;
+      fu.toolResult = pr.text.c_str();
       llm::Reply c = llm::ask(g_history.messages(), s.text, st, fu);
       if (c.ok && !c.toolCall) {
         g_history.addUser(s.text.c_str());

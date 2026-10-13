@@ -13,6 +13,7 @@
 #include "ui.h"
 #include "pure/http_response.h"
 #include "pure/plugin_file.h"
+#include "pure/weather_text.h"
 
 namespace plugins {
 
@@ -29,36 +30,32 @@ bool g_lampOn = false;
 toolx::Kind kindOf(const std::string& k) {
   if (k == "screen") return toolx::Kind::Screen;
   if (k == "http") return toolx::Kind::Http;
+  if (k == "weather") return toolx::Kind::Weather;
   return toolx::Kind::Gpio;
 }
 
 // Встроенный набор: используется, если файла нет (первый запуск или сбой ФС).
 void addBuiltins(std::vector<plugfile::Def>& d) {
-  plugfile::Def a;
-  a.name = "set_lamp";
-  a.description =
+  auto add = [&](const char* name, const char* desc, const char* kind,
+                 int pin, const char* url) {
+    plugfile::Def x;
+    x.name = name;
+    x.description = desc;
+    x.kind = kind;
+    x.pin = pin;
+    if (url) x.url = url;
+    d.push_back(x);
+  };
+  add("set_lamp",
       "Включить, выключить или переключить лампу на GPIO26. Вызывай всегда, "
-      "когда просят включить, выключить или переключить лампу.";
-  a.kind = "gpio";
-  a.pin = 26;
-  d.push_back(a);
-
-  plugfile::Def b;
-  b.name = "show_text";
-  b.description =
+      "когда просят включить, выключить или переключить лампу.",
+      "gpio", 26, nullptr);
+  add("show_text",
       "Показать короткий текст на экране стика. Вызывай, когда просят "
-      "показать что-то на экране.";
-  b.kind = "screen";
-  d.push_back(b);
-
-  plugfile::Def c;
-  c.name = "http_get";
-  c.description =
-      "Отправить HTTP GET на домашний адрес (умный дом, вебхук). query — "
-      "необязательный параметр строки запроса";
-  c.kind = "http";
-  c.url = "https://example.com/hook";
-  d.push_back(c);
+      "показать что-то на экране.", "screen", -1, nullptr);
+  add("weather",
+      "Узнать погоду на сегодня. Вызывай, когда спрашивают про погоду.",
+      "weather", -1, nullptr);
 }
 
 // Пересобирает таблицу и JSON инструментов из определений.
@@ -106,78 +103,111 @@ void load() {
   Serial.printf("[plug] плагинов в таблице: %u\n", (unsigned)g_table.size());
 }
 
+// --- сеть ---
+
+// HTTPS GET. Возвращает код ответа (-1 — не дошло), тело кладёт в body.
+int httpsGet(const char* host, const char* path, String& body, size_t maxLen) {
+  body = "";
+  WiFiClientSecure& c = net::tlsClient();
+  c.setTimeout(kHttpConnectMs);
+  if (!c.connect(host, 443)) return -1;
+  c.setTimeout(kHttpReadMs);
+
+  char req[512];
+  snprintf(req, sizeof(req),
+           "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: aistick/0.1\r\n"
+           "Connection: close\r\n\r\n",
+           path, host);
+  const uint32_t t0 = millis();
+  if (!net::writeAll(c, (const uint8_t*)req, strlen(req), t0)) {
+    c.stop();
+    return -1;
+  }
+  const String raw = net::readAll(c, t0, maxLen);
+  c.stop();
+
+  const int code = httpr::parseStatus(raw.c_str());
+  const int sep = raw.indexOf("\r\n\r\n");
+  if (sep >= 0) body = raw.substring(sep + 4);
+  return code;
+}
+
 // --- действия ---
 
 void runGpio(const toolx::Plugin& p, const std::string& args, Result& r) {
   std::string state;
   if (!toolx::argString(args.c_str(), "state", state)) {
-    snprintf(r.detail, sizeof(r.detail), "нужен state");
+    r.text = "нужен state";
     return;
   }
   bool on = g_lampOn;
   if (state == "on") on = true;
   else if (state == "off") on = false;
   else if (state == "toggle") on = !g_lampOn;
-  else { snprintf(r.detail, sizeof(r.detail), "state=%s?", state.c_str()); return; }
+  else { r.text = "state=" + state + "?"; return; }
 
   pinMode(p.pin, OUTPUT);
   digitalWrite(p.pin, on ? HIGH : LOW);
   g_lampOn = on;
-  snprintf(r.detail, sizeof(r.detail), "G%d %s", p.pin, on ? "вкл" : "выкл");
+  char buf[32];
+  snprintf(buf, sizeof(buf), "G%d %s", p.pin, on ? "вкл" : "выкл");
+  r.text = buf;
   r.ok = true;
 }
 
 void runScreen(const std::string& args, Result& r) {
   std::string text;
   if (!toolx::argString(args.c_str(), "text", text)) {
-    snprintf(r.detail, sizeof(r.detail), "нужен text");
+    r.text = "нужен text";
     return;
   }
   ui::notice(text.c_str());
-  snprintf(r.detail, sizeof(r.detail), "показано");
+  r.text = "показано";
   r.ok = true;
 }
 
-bool httpGet(const char* url, char* detail, size_t n) {
-  if (strncmp(url, "https://", 8) != 0) {
-    snprintf(detail, n, "нужен https");
-    return false;
+// Процентное кодирование города (кириллица) для пути URL.
+std::string urlEncodeCity(const char* city) {
+  std::string enc;
+  for (const unsigned char* p = (const unsigned char*)city; *p != 0; ++p) {
+    const unsigned char c = *p;
+    if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+        (c >= 'a' && c <= 'z') || c == '-' || c == '_' || c == '.') {
+      enc.push_back((char)c);
+    } else if (c == ' ') {
+      enc += "%20";
+    } else {
+      char b[8];
+      snprintf(b, sizeof(b), "%%%02X", c);
+      enc += b;
+    }
   }
-  const char* hostStart = url + 8;
-  const char* slash = strchr(hostStart, '/');
-  const std::string host(hostStart, slash ? (size_t)(slash - hostStart)
-                                          : strlen(hostStart));
-  const char* path = slash ? slash : "/";
+  return enc;
+}
 
-  WiFiClientSecure& c = net::tlsClient();
-  c.setTimeout(kHttpConnectMs);
-  if (!c.connect(host.c_str(), 443)) {
-    snprintf(detail, n, "нет связи");
-    return false;
+// Погода на сегодня. Город пустой — просим его назвать.
+void runWeather(const std::string& rawCity, Result& r) {
+  const std::string city = weather::cleanCity(rawCity.c_str());
+  if (city.empty()) {
+    r.ask = "Какой ваш город?";
+    r.ok = true;
+    return;
   }
-  c.setTimeout(kHttpReadMs);
+  const std::string path =
+      "/" + urlEncodeCity(city.c_str()) + "?format=%l|%C|%t|%f|%w|%h";
 
-  char req[320];
-  snprintf(req, sizeof(req),
-           "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: aistick/0.1\r\n"
-           "Connection: close\r\n\r\n",
-           path, host.c_str());
-  const uint32_t t0 = millis();
-  if (!net::writeAll(c, (const uint8_t*)req, strlen(req), t0)) {
-    c.stop();
-    snprintf(detail, n, "обрыв отправки");
-    return false;
+  String body;
+  const int code = httpsGet("wttr.in", path.c_str(), body, 1024);
+  if (code != 200) {
+    r.text = (code < 0) ? "нет связи с погодой" : "погода: HTTP " + std::to_string(code);
+    return;
   }
-  const String raw = net::readAll(c, t0, 2048);
-  c.stop();
-
-  const int code = httpr::parseStatus(raw.c_str());
-  if (code < 0) {
-    snprintf(detail, n, "нет ответа");
-    return false;
+  if (!weather::compose(body.c_str(), r.text)) {
+    r.text = "не разобрал погоду";
+    return;
   }
-  snprintf(detail, n, "HTTP %d", code);
-  return code == 200;
+  r.ok = true;
+  r.asAnswer = true;
 }
 
 void runHttp(const toolx::Plugin& p, const std::string& args, Result& r) {
@@ -187,7 +217,26 @@ void runHttp(const toolx::Plugin& p, const std::string& args, Result& r) {
     url += (url.find('?') == std::string::npos) ? "?" : "&";
     url += query;
   }
-  r.ok = httpGet(url.c_str(), r.detail, sizeof(r.detail));
+  if (strncmp(url.c_str(), "https://", 8) != 0) {
+    r.text = "нужен https";
+    return;
+  }
+  const char* hostStart = url.c_str() + 8;
+  const char* slash = strchr(hostStart, '/');
+  const std::string host(hostStart, slash ? (size_t)(slash - hostStart)
+                                          : strlen(hostStart));
+  const char* path = slash ? slash : "/";
+
+  String body;
+  const int code = httpsGet(host.c_str(), path, body, 2048);
+  if (code < 0) {
+    r.text = "нет связи";
+    return;
+  }
+  char buf[24];
+  snprintf(buf, sizeof(buf), "HTTP %d", code);
+  r.text = buf;
+  r.ok = (code == 200);
 }
 
 }  // namespace
@@ -198,29 +247,64 @@ const toolx::Plugin* table() { return g_table.data(); }
 size_t count() { return g_table.size(); }
 const char* toolsJson() { return g_tools.c_str(); }
 
+namespace {
+
+// Ищет плагин по имени.
+const toolx::Plugin* find(const char* name) {
+  if (name == nullptr) return nullptr;
+  for (const toolx::Plugin& p : g_table) {
+    if (strcmp(p.name, name) == 0) return &p;
+  }
+  return nullptr;
+}
+
+}  // namespace
+
 Result run(const char* name, const char* argsJson) {
   Result r;
-  if (name == nullptr || argsJson == nullptr) {
-    snprintf(r.detail, sizeof(r.detail), "пустой вызов");
+  const toolx::Plugin* p = find(name);
+  if (p == nullptr) {
+    r.text = "нет плагина";
+    Serial.printf("[plug] неизвестный плагин: %s\n", name ? name : "(null)");
     return r;
   }
-  for (const toolx::Plugin& p : g_table) {
-    if (strcmp(p.name, name) != 0) continue;
+  r.plugin = p->name;
+  r.answerAfter = p->answerAfter;
 
-    const std::string args(argsJson);
-    r.plugin = p.name;
-    r.answerAfter = p.answerAfter;
-    switch (p.kind) {
-      case toolx::Kind::Gpio: runGpio(p, args, r); break;
-      case toolx::Kind::Screen: runScreen(args, r); break;
-      case toolx::Kind::Http: runHttp(p, args, r); break;
+  const std::string args(argsJson ? argsJson : "{}");
+  switch (p->kind) {
+    case toolx::Kind::Gpio: runGpio(*p, args, r); break;
+    case toolx::Kind::Screen: runScreen(args, r); break;
+    case toolx::Kind::Http: runHttp(*p, args, r); break;
+    case toolx::Kind::Weather: {
+      std::string city;
+      toolx::argString(args.c_str(), "city", city);
+      runWeather(city, r);
+      break;
     }
-    Serial.printf("[plug] %s -> %s (%s)\n", name, r.detail,
-                  r.ok ? "ок" : "ошибка");
+  }
+  Serial.printf("[plug] %s -> %s\n", p->name,
+                r.ask ? r.ask : r.text.c_str());
+  return r;
+}
+
+Result runInput(const char* name, const char* userText) {
+  Result r;
+  const toolx::Plugin* p = find(name);
+  if (p == nullptr) {
+    r.text = "нет плагина";
     return r;
   }
-  snprintf(r.detail, sizeof(r.detail), "нет плагина");
-  Serial.printf("[plug] неизвестный плагин: %s\n", name);
+  r.plugin = p->name;
+  r.answerAfter = p->answerAfter;
+  const std::string text(userText ? userText : "");
+
+  switch (p->kind) {
+    case toolx::Kind::Weather: runWeather(text, r); break;
+    default: r.text = "плагин не ждёт ответа"; break;
+  }
+  Serial.printf("[plug] %s <- \"%s\" -> %s\n", p->name, text.c_str(),
+                r.text.c_str());
   return r;
 }
 

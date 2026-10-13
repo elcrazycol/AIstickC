@@ -109,6 +109,7 @@ aistick/
 │     ├─ text_wrap.h      UTF-8 wrap by pixels + pagination
 │     ├─ tool_call.h      tools for the model and its call parsing
 │     ├─ wav.h            WAV header
+│     ├─ weather_text.h   Russian weather text assembly
 │     ├─ base64.h, cyrillic.h
 ├─ include/
 │  ├─ settings.h          non-secret settings
@@ -216,14 +217,21 @@ pin = 26
 |---|---|
 | `name` | function name for the model, latin |
 | `description` | what it does; the model decides by this |
-| `kind` | `gpio` · `screen` · `http` |
+| `kind` | `gpio` · `screen` · `http` · `weather` |
 | `pin` | for `gpio`: pin number |
 | `url` | for `http`: address (https) |
 | `answer` | `true` — also ask the model to comment on the result |
 
 The argument schema is derived from `kind`: `gpio` expects `state`
-(on/off/toggle), `screen` — `text`, `http` — an optional `query`. If the file is
-missing, the built-in set is used, so the device works without it.
+(on/off/toggle), `screen` — `text`, `http` — an optional `query`, `weather` — an
+optional `city`. If the file is missing, the built-in set is used, so the device
+works without it.
+
+A plugin can be **two-stage**. `weather` works like this: if no city was given,
+a "Which city?" panel appears, and the next utterance is not sent to the model —
+it goes to the plugin. Weather comes from `wttr.in` (no key), and the answer is
+assembled into Russian: the condition is translated with a dictionary, and the
+wind arrow, which the font lacks, is stripped.
 
 When a plugin runs, a short result panel appears and disappears back to the
 idle screen by itself after a couple of seconds. The exchange is deliberately
@@ -241,9 +249,9 @@ tools/run_tests.sh
 ```
 
 Built with `clang++` and requiring neither PlatformIO nor hardware, so they run
-anywhere. Currently **12 suites**: `chat_history`, `chunked`, `http_response`,
+anywhere. Currently **13 suites**: `chat_history`, `chunked`, `http_response`,
 `json`, `llm_request`, `plugin_file`, `sse`, `text_wrap`, `tool_call`, `wav`,
-`base64`, `cyrillic`. The same
+`weather_text`, `base64`, `cyrillic`. The same
 run executes in CI on every push (badge at the top).
 
 ## Power
