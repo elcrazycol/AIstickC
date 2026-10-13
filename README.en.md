@@ -97,14 +97,17 @@ aistick/
 │  ├─ net.cpp/.h          Wi-Fi and the shared TLS client
 │  ├─ stt.cpp/.h          request to the proxy → Whisper
 │  ├─ llm.cpp/.h          streamed request to OpenCode Go (SSE)
+│  ├─ plugins.cpp/.h      plugins: table and actions
 │  └─ pure/               pure modules: no Arduino, tested on a Mac
 │     ├─ chat_history.h   dialogue memory with trimming
 │     ├─ chunked.h        incremental chunked decoder
 │     ├─ http_response.h  HTTP response parsing
 │     ├─ json_extract.h   extract fields by path
 │     ├─ llm_request.h    build the JSON request
+│     ├─ plugin_file.h    plugin file parser
 │     ├─ sse.h            Server-Sent Events parsing
 │     ├─ text_wrap.h      UTF-8 wrap by pixels + pagination
+│     ├─ tool_call.h      tools for the model and its call parsing
 │     ├─ wav.h            WAV header
 │     ├─ base64.h, cyrillic.h
 ├─ include/
@@ -112,6 +115,9 @@ aistick/
 │  ├─ config.h.example    secrets template (config.h is gitignored)
 │  ├─ font_jbmono.h       generated Cyrillic font
 │  └─ idle_image.h        generated idle-screen picture
+├─ data/
+│  └─ plugins.txt         plugins (uploaded to LittleFS)
+├─ partitions.csv         partition table: 3 MB app, 4 MB LittleFS
 ├─ tools/
 │  ├─ run_tests.sh        run the tests (clang++, no hardware)
 │  ├─ capture.py          serial → WAV / device log
@@ -144,7 +150,10 @@ bash deploy/fill-config.sh <your-domain> 9443   # writes PROXY_* into config.h
 # 4. Flash
 pio run -e esp32dev -t upload
 
-# 5. Device log (opens the port and resets the board itself)
+# 5. Plugins (filesystem; after this, edit without rebuilding)
+pio run -e esp32dev -t uploadfs
+
+# 6. Device log (opens the port and resets the board itself)
 python3 tools/capture.py --monitor
 ```
 
@@ -185,23 +194,41 @@ handshake).
 ## Plugins
 
 The model itself decides when to call a tool (tool calling) — by the meaning of
-the phrase, not by keywords. A plugin is an entry in the `src/plugins.cpp`
-table: function name, description for the model, JSON argument schema and an
-action.
+the phrase, not by keywords.
 
-There are three today:
+Plugins live in `data/plugins.txt` and are read at boot. To apply a change the
+firmware does **not** need rebuilding — only the filesystem is reflashed:
 
-| Plugin | Action |
+```bash
+pio run -e esp32dev -t uploadfs
+```
+
+The format is blocks separated by a blank line, with `key = value` lines:
+
+```
+name = set_lamp
+description = Turn the lamp on GPIO26 on, off or toggle it
+kind = gpio
+pin = 26
+```
+
+| Key | Meaning |
 |---|---|
-| `set_lamp` | GPIO26: `state` = on / off / toggle |
-| `show_text` | a panel with text from the model |
-| `http_get` | GET a configured URL (+ optional `query`) |
+| `name` | function name for the model, latin |
+| `description` | what it does; the model decides by this |
+| `kind` | `gpio` · `screen` · `http` |
+| `pin` | for `gpio`: pin number |
+| `url` | for `http`: address (https) |
+| `answer` | `true` — also ask the model to comment on the result |
+
+The argument schema is derived from `kind`: `gpio` expects `state`
+(on/off/toggle), `screen` — `text`, `http` — an optional `query`. If the file is
+missing, the built-in set is used, so the device works without it.
 
 When a plugin runs, a short result panel appears and disappears back to the
 idle screen by itself after a couple of seconds. The exchange is deliberately
 **not** stored in the dialogue memory: otherwise the model starts copying the
-note as text instead of calling the tool. The `answerAfter` flag makes it also
-comment on the result (the result is sent as a `role:"tool"` message).
+note as text instead of calling the tool.
 
 Adding a plugin means adding a table row and rebuilding. The next step is moving
 the table into LittleFS so a plugin can be dropped in as a file without
@@ -214,8 +241,9 @@ tools/run_tests.sh
 ```
 
 Built with `clang++` and requiring neither PlatformIO nor hardware, so they run
-anywhere. Currently **10 suites**: `chat_history`, `chunked`, `http_response`,
-`json`, `llm_request`, `sse`, `text_wrap`, `wav`, `base64`, `cyrillic`. The same
+anywhere. Currently **12 suites**: `chat_history`, `chunked`, `http_response`,
+`json`, `llm_request`, `plugin_file`, `sse`, `text_wrap`, `tool_call`, `wav`,
+`base64`, `cyrillic`. The same
 run executes in CI on every push (badge at the top).
 
 ## Power
@@ -251,7 +279,8 @@ hardware and real APIs changed the plan:
 
 **Done:** milestones 0–2 (hardware, recognition, reply), UI with its own font,
 dialogue memory, streaming, idle-screen picture and battery, power saving, the
-plugin system (tool calling: GPIO, screen, HTTP).
+plugin system (tool calling: GPIO, screen, HTTP) with the table in LittleFS —
+a plugin is added as a file without rebuilding.
 
 **Remaining:**
 
@@ -260,8 +289,8 @@ plugin system (tool calling: GPIO, screen, HTTP).
 - A distinct "Did not catch that" message for empty recognition.
 - Auto-return to IDLE 5 s after an error.
 - Cancelling a recording with a button.
-- File-based plugins: move the table into LittleFS so a plugin can be dropped in
-  without rebuilding the firmware.
+- Uploading the plugin file without a cable (a tiny web server on the stick or
+  a serial transfer) — today `uploadfs` over USB is required.
 
 **Not verified on hardware:** waking from deep sleep and maximum-length (15 s)
 recording — both were exercised only at smaller scales.

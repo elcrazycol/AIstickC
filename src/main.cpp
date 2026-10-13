@@ -450,6 +450,9 @@ void setup() {
   g_msgs = g_prefs.getUInt("msgs", 0);
   Serial.printf("[main] всего сообщений: %u\n", (unsigned)g_msgs);
 
+  // Плагины: из LittleFS, иначе встроенный набор.
+  plugins::begin();
+
   const size_t total = wav::totalSize(kAudioBytes);
   g_audio = (uint8_t*)ps_malloc(total);
   if (g_audio == nullptr) {

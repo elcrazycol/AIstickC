@@ -14,6 +14,10 @@
 
 namespace plugins {
 
+// Читает плагины из LittleFS (/plugins.txt); если файла нет — берёт
+// встроенный набор. Вызывается один раз при старте.
+void begin();
+
 // Таблица и её размер.
 const toolx::Plugin* table();
 size_t count();
