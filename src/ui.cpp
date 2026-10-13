@@ -19,6 +19,7 @@ constexpr int kGreen  = lgfx::colors::TFT_GREEN;
 constexpr int kYellow = lgfx::colors::TFT_YELLOW;
 constexpr int kWhite  = lgfx::colors::TFT_WHITE;
 constexpr int kGray   = 0x8410;  // нейтрально-серый RGB565
+constexpr int kOrange = lgfx::colors::TFT_ORANGE;
 
 constexpr int kLineH     = kFont_jbmono_YAdvance;
 constexpr int kFirstBase = 26;  // верх первой строки тела
@@ -335,12 +336,16 @@ void notice(const char* text) {
   M5.Display.print(text);
 }
 
-void list(const char* title, const std::vector<std::string>& items,
+void list(const char* title, const std::vector<ListItem>& items,
           size_t index) {
   Guard g;
   M5.Display.fillScreen(kBlack);
   statusBarLocked();  // не statusBar(): он берёт тот же мьютекс и вешает задачу
   useFontLocked();
+
+  constexpr int kSelBg  = 0x2128;  // тёмно-синяя подложка выбранной строки
+  constexpr int kDotX   = kScreenW - 13;
+  constexpr int kStripe = 3;       // акцентная полоска слева
 
   M5.Display.setTextColor(kYellow, kBlack);
   M5.Display.setCursor(kMargin, 24);
@@ -355,14 +360,34 @@ void list(const char* title, const std::vector<std::string>& items,
   int y = 44;
   for (size_t i = first; i < items.size() && i < first + kVisible; ++i) {
     const bool sel = (i == index);
-    M5.Display.setTextColor(sel ? kWhite : kGray, kBlack);
+    const int bg = sel ? kSelBg : kBlack;
+
     if (sel) {
-      // Подсветка выбранной строки. Верх строки — это и есть cursor_y
-      // (так считает метрику GFXfont), поэтому полоска идёт ровно от y.
-      M5.Display.fillRect(0, y, kScreenW, kLineH - 4, 0x18E3);
+      // Подсветка — во всю строку и встык со следующей, плюс акцентная
+      // полоска слева. Фон текста обязательно тот же: иначе буквы прорезают
+      // в подложке чёрные клетки.
+      M5.Display.fillRect(0, y, kScreenW, kLineH, kSelBg);
+      M5.Display.fillRect(0, y, kStripe, kLineH, kYellow);
     }
+
+    M5.Display.setTextColor(sel ? kWhite : kGray, bg);
     M5.Display.setCursor(kMargin + 6, y);
-    M5.Display.print(items[i].c_str());
+    M5.Display.print(items[i].text.c_str());
+
+    // Метка справа — точками: они чётче любых знаков из шрифта.
+    const int cy = y + 8;
+    switch (items[i].mark) {
+      case Mark::Installed:
+        M5.Display.fillCircle(kDotX, cy, 3, kGreen);
+        break;
+      case Mark::Update:
+        M5.Display.drawCircle(kDotX, cy, 6, kOrange);
+        M5.Display.fillCircle(kDotX, cy, 3, kOrange);
+        break;
+      case Mark::None:
+      default:
+        break;
+    }
     y += kLineH;
   }
 

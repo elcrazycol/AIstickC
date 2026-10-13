@@ -45,7 +45,8 @@ Still screens: [idle](docs/images/screen-idle.png),
 [recording](docs/images/screen-recording.png),
 [waiting](docs/images/screen-waiting.png),
 [answer](docs/images/screen-answer.png),
-[reset panel](docs/images/screen-notice.png).
+[reset panel](docs/images/screen-notice.png),
+[plugin panel](docs/images/screen-plugins.png).
 
 ## Hardware
 
@@ -215,6 +216,14 @@ rebuild.
 **Shake the stick** — the settings menu opens, the first item is "Plugins". The
 panel lists what the repository offers, marked `стоит` (installed) or `обновить`
 (update available), plus installed plugins that are no longer in the repository.
+
+The mark on the right of a name tells what the stick has:
+
+| Mark | Meaning |
+|---|---|
+| 🟢 green dot | installed, nothing to update |
+| 🟠 orange dot in a ring | installed, but the repository has a newer version |
+| nothing | not installed |
 
 | Button | Action |
 |---|---|

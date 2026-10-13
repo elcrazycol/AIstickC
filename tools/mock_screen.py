@@ -35,7 +35,9 @@ RED = (255, 0, 0)
 GREEN = (0, 200, 0)
 YELLOW = (255, 255, 0)
 GRAY = (128, 132, 128)      # 0x8410
-PANEL = (24, 28, 24)        # 0x18E3
+PANEL = (24, 28, 24)        # 0x18E3 — нейтральная панель (notice)
+SEL_BG = (33, 36, 66)       # 0x2128 — подложка выбранной строки списка
+ORANGE = (255, 165, 0)      # TFT_ORANGE — метка «есть новее»
 PANEL_EDGE = (128, 132, 128)
 DIM_DARK = (33, 4, 4)       # 0x2104 (пустые палочки)
 
@@ -130,6 +132,21 @@ def fill(px, x0, y0, x1, y1, color):
     for y in range(max(0, y0), min(H, y1)):
         for x in range(max(0, x0), min(W, x1)):
             px[x, y] = color
+
+
+def circle(px, cx, cy, r, color):
+    for y in range(cy - r, cy + r + 1):
+        for x in range(cx - r, cx + r + 1):
+            if 0 <= x < W and 0 <= y < H and (x - cx) ** 2 + (y - cy) ** 2 <= r * r:
+                px[x, y] = color
+
+
+def ring(px, cx, cy, r, color):
+    for y in range(cy - r, cy + r + 1):
+        for x in range(cx - r, cx + r + 1):
+            d = (x - cx) ** 2 + (y - cy) ** 2
+            if r * r - 2 * r <= d <= r * r and 0 <= x < W and 0 <= y < H:
+                px[x, y] = color
 
 
 def status_bar(img, font, pct, rssi=4, bolt=False):
@@ -266,6 +283,38 @@ def wrap(font, text, max_px):
     return lines
 
 
+def screen_plugins(font, items, index, pct=78, rssi=4):
+    """Панель плагинов: повторяет ui::list в src/ui.cpp.
+
+    items — список (имя, метка), метка: "installed" | "update" | None.
+    """
+    img = Image.new("RGB", (W, H), BLACK)
+    px = img.load()
+    status_bar(img, font, pct, rssi)
+
+    # cursor_y у GFXfont — верх строки, а mock рисует по базовой линии.
+    above = max(-g[5] for g in font.glyphs)
+
+    font.text(img, "Плагины", MARGIN, 24 + above, YELLOW)
+
+    y = 44
+    for i, (name, mark) in enumerate(items):
+        sel = (i == index)
+        if sel:
+            fill(px, 0, y, W, y + 20, SEL_BG)
+            fill(px, 0, y, 3, y + 20, YELLOW)
+        font.text(img, name, MARGIN + 6, y + above, WHITE if sel else GRAY)
+
+        cx, cy = W - 13, y + 8
+        if mark == "installed":
+            circle(px, cx, cy, 3, GREEN)
+        elif mark == "update":
+            ring(px, cx, cy, 6, ORANGE)
+            circle(px, cx, cy, 3, ORANGE)
+        y += 20
+    return img
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default=os.path.join(ROOT, "docs", "images"))
@@ -292,6 +341,9 @@ def main():
     lines = wrap(font, answer, W - 2 * MARGIN)
     save(screen_answer(font, lines, 0, 2), "screen-answer.png")
     save(screen_notice(font, "История разговора очищена"), "screen-notice.png")
+    save(screen_plugins(font, [("switch", "installed"), ("weather", "update"),
+                               ("lamp", None), ("show_text", "installed")], 1),
+         "screen-plugins.png")
 
     # --- GIF: запись (волны + отсчёт)
     frames = []

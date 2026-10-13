@@ -84,7 +84,7 @@ String   g_pendingPlugin;     // плагин, ждущий ответа пол�
 // --- меню настроек и панель плагинов ---
 size_t g_menuIndex = 0;
 size_t g_pluginIndex = 0;
-std::vector<std::string> g_pluginRows;   // как показать
+std::vector<ui::ListItem> g_pluginRows;  // как показать
 std::vector<std::string> g_pluginNames;  // что ставить/удалять
 bool     g_imuOk = false;
 uint32_t g_lastShake = 0;
@@ -475,18 +475,22 @@ void buildPluginRows() {
   for (const repo::Item& it : repo::available()) {
     const bool inst = repo::installed(it.name.c_str());
     const int have = repo::installedVersion(it.name.c_str());
-    std::string mark;
-    if (inst && it.version > have && have > 0) mark = "  обновить";
-    else if (inst) mark = "  стоит";
-    g_pluginRows.push_back(it.name + mark);
+
+    // Метка вместо слова: точка понятнее текста и не мешает читать имя.
+    ui::Mark mark = ui::Mark::None;
+    if (inst && it.version > have && have > 0) mark = ui::Mark::Update;
+    else if (inst) mark = ui::Mark::Installed;
+
+    g_pluginRows.push_back({it.name, mark});
     g_pluginNames.push_back(it.name);
   }
 
+  // Установленные, которых в репозитории уже нет: их можно только удалить.
   std::vector<std::string> local;
   plugins::names(local);
   for (const std::string& n : local) {
     if (repo::find(n.c_str()) != nullptr) continue;  // уже в списке
-    g_pluginRows.push_back(n + "  стоит");
+    g_pluginRows.push_back({n, ui::Mark::Installed});
     g_pluginNames.push_back(n);
   }
 }
@@ -515,7 +519,7 @@ void togglePlugin(size_t i) {
 void enterPlugins() {
   g_holdExit.clear();
   g_state = State::Plugins;
-  ui::list("Плагины", {"обновляю список..."}, 0);
+  ui::list("Плагины", {{"обновляю список..."}}, 0);
   repo::refresh();
   buildPluginRows();
   g_pluginIndex = 0;
@@ -526,7 +530,7 @@ void enterSettings() {
   g_holdExit.clear();
   g_state = State::Settings;
   g_menuIndex = 0;
-  ui::list("Настройки", {"Плагины"}, g_menuIndex);
+  ui::list("Настройки", {{"Плагины"}}, g_menuIndex);
 }
 
 void pollSettings() {
