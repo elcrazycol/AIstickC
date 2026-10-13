@@ -182,6 +182,30 @@ progress, three flowing dots are animated by a separate task on the second core
 (network calls block, so from the main loop the animation froze on the TLS
 handshake).
 
+## Plugins
+
+The model itself decides when to call a tool (tool calling) — by the meaning of
+the phrase, not by keywords. A plugin is an entry in the `src/plugins.cpp`
+table: function name, description for the model, JSON argument schema and an
+action.
+
+There are three today:
+
+| Plugin | Action |
+|---|---|
+| `set_lamp` | GPIO26: `state` = on / off / toggle |
+| `show_text` | a panel with text from the model |
+| `http_get` | GET a configured URL (+ optional `query`) |
+
+When a plugin runs, a short result panel appears and the exchange is stored in
+the dialogue memory tagged `[плагин]` (so the model does not think it already
+answered). The `answerAfter` flag makes it also comment on the result (the
+result is sent as a `role:"tool"` message).
+
+Adding a plugin means adding a table row and rebuilding. The next step is moving
+the table into LittleFS so a plugin can be dropped in as a file without
+rebuilding.
+
 ## Tests
 
 ```bash
@@ -225,7 +249,8 @@ hardware and real APIs changed the plan:
 ## Roadmap
 
 **Done:** milestones 0–2 (hardware, recognition, reply), UI with its own font,
-dialogue memory, streaming, idle-screen picture and battery, power saving.
+dialogue memory, streaming, idle-screen picture and battery, power saving, the
+plugin system (tool calling: GPIO, screen, HTTP).
 
 **Remaining:**
 
@@ -234,14 +259,8 @@ dialogue memory, streaming, idle-screen picture and battery, power saving.
 - A distinct "Did not catch that" message for empty recognition.
 - Auto-return to IDLE 5 s after an error.
 - Cancelling a recording with a button.
-- **Plugin system.** A plugin is a small file (in LittleFS, or compiled into the
-  firmware) with a trigger phrase and an action. Recognized text is matched
-  against triggers first, and on a hit the stick runs the action instead of the
-  LLM request (or alongside it). Speech recognition is approximate, so matching
-  has to be fuzzy — keywords with normalization, not exact equality. Actions:
-  drive a GPIO (say G26 — a lamp), print something on the screen, fire an HTTP
-  request (smart home, a webhook, anything). Drop in a file and you have a
-  plugin.
+- File-based plugins: move the table into LittleFS so a plugin can be dropped in
+  without rebuilding the firmware.
 
 **Not verified on hardware:** waking from deep sleep and maximum-length (15 s)
 recording — both were exercised only at smaller scales.

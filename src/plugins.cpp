@@ -19,13 +19,15 @@ namespace {
 // инструмент. Пин и URL — под свою периферию.
 const toolx::Plugin kPlugins[] = {
     {"set_lamp",
-     "Включить, выключить или переключить лампу на GPIO26",
+     "Включить, выключить или переключить лампу на GPIO26. Вызывай всегда, "
+     "когда просят включить, выключить или переключить лампу.",
      "{\"type\":\"object\",\"properties\":{\"state\":{\"type\":\"string\","
      "\"enum\":[\"on\",\"off\",\"toggle\"]}},\"required\":[\"state\"]}",
      toolx::Kind::Gpio, 26, nullptr, false},
 
     {"show_text",
-     "Показать короткий текст на экране стика",
+     "Показать короткий текст на экране стика. Вызывай, когда просят показать "
+     "что-то на экране.",
      "{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}},"
      "\"required\":[\"text\"]}",
      toolx::Kind::Screen, -1, nullptr, false},

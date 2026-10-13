@@ -313,8 +313,12 @@ void runQuestion() {
     char panel[72];
     snprintf(panel, sizeof(panel), "%s: %s", a.toolName.c_str(), pr.detail);
     ui::notice(panel);
+    // В историю пишем с пометкой, что это был вызов плагина, — иначе модель
+    // решает, что уже «ответила», и в следующий раз не зовёт инструмент.
+    char hist[80];
+    snprintf(hist, sizeof(hist), "[плагин] %s", panel);
     g_history.addUser(s.text.c_str());
-    g_history.addAssistant(panel);
+    g_history.addAssistant(hist);
     g_history.trim(kChatMaxChars);
 
     // Плагин может попросить модель прокомментировать результат.
