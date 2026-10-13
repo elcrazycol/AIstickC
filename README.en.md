@@ -237,19 +237,27 @@ answer length first, because the token limit follows it:
 |---|---|
 | Answer length | `кратко` · `обычно` · `подробно` |
 | Dialogue memory | `авто` · 1 · 3 · 5 · 8 · 12 exchanges |
-| Answer limit | `авто` · 300 · 600 · 1000 · 2000 · 3000 tokens |
+| Answer limit | `авто` · 150 · 300 · 600 · 1200 · 2400 tokens |
 
 Navigation: **PWR** — forward, **BtnB** (tap) — back, **BtnA** (tap) — enter an
 item or switch its value, **BtnB** (hold 1.5 s) — one level up. The choice lives
 in NVS and survives power-off.
 
-**Answer length** is not just a token limit but a request to the model. The
-levels differ in the wording of the system prompt: "кратко" is what the project
-started with (2-3 sentences), "обычно" asks for 3-4 screens of text, "подробно"
-for up to 6-7. The token limit grows with the request (600 → 1200 → 2400): it
-needs headroom, otherwise a long answer is cut mid-sentence. A limit is a
-ceiling, not a target — on its own it does not lengthen an answer, the prompt
-sets the length.
+**Answer length** is a request to the model plus a token ceiling sized for it.
+The screen shows 5 lines of ~29 characters, so a page is about 145 characters,
+and the model produces roughly 6 characters per token (measured on the device).
+The ceiling is therefore computed straight from the page count:
+
+| Level | What we ask | Ceiling | Result |
+|---|---|---|---|
+| `кратко` | 2-3 sentences | 97 tokens | ~3 screens |
+| `обычно` | up to 10 sentences | 121 tokens | ~5 screens |
+| `подробно` | up to 20 sentences | 242 tokens | ~10 screens |
+
+The wording with a sentence count is the main lever; the ceiling only guards
+against runaway answers. The vague "3-4 screens of text" was read by the model
+as "write a lot": with a 1200 limit it produced 20+ screens. A limit is a
+ceiling, not a target — on its own it does not lengthen an answer.
 
 **"Авто" for the limit** means "follow the answer length" — the row shows the
 number that came out of it (`авто 600`). It can also be pinned manually.

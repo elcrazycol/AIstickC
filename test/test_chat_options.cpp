@@ -68,28 +68,48 @@ static void test_auto_turns() {
   CHECK(chatopt::autoTurns(1200, 2400, 5) == 2);
 }
 
-// Длина ответа: три уровня, лимит растёт вместе с просьбой.
+// Длина ответа: три уровня, лимит считается из заявленного числа экранов.
 static void test_lengths() {
   CHECK(chatopt::kLengthsCount == 3);
   CHECK_STR_EQ(chatopt::lengthLabel(0), "кратко");
   CHECK_STR_EQ(chatopt::lengthLabel(1), "обычно");
   CHECK_STR_EQ(chatopt::lengthLabel(2), "подробно");
 
-  // И просьба, и лимит растут монотонно: иначе «подробно» обрежется
-  // на полуслове, и уровень окажется хуже предыдущего.
   for (size_t i = 1; i < chatopt::kLengthsCount; ++i) {
-    CHECK(chatopt::lengthTarget(i) > chatopt::lengthTarget(i - 1));
+    CHECK(chatopt::lengthPages(i) > chatopt::lengthPages(i - 1));
     CHECK(chatopt::lengthMaxTokens(i) > chatopt::lengthMaxTokens(i - 1));
   }
 
-  // Лимит с запасом к просьбе: русский текст — примерно два знака на токен.
+  // Лимит вмещает заявленные экраны с запасом, но не в разы больше: иначе
+  // модель дописывает до потолка, и ответ раздувается — ровно то, на что
+  // жаловались («обычно» давало 20+ экранов при лимите 1200).
   for (size_t i = 0; i < chatopt::kLengthsCount; ++i) {
-    CHECK((size_t)chatopt::lengthMaxTokens(i) * 2 >= chatopt::lengthTarget(i));
+    const size_t capChars =
+        (size_t)chatopt::lengthMaxTokens(i) * chatopt::kCharsPerTokenX10 / 10;
+    CHECK(capChars >= chatopt::lengthTarget(i));
+    CHECK(capChars <= chatopt::lengthTarget(i) * 3 / 2);
   }
 
-  // «Обычно» — это про 3-4 страницы по ~145 знаков, «подробно» — про 6-7.
-  CHECK(chatopt::lengthTarget(1) >= 3 * 145);
-  CHECK(chatopt::lengthTarget(2) >= 6 * 145);
+  // Целевые размеры: «обычно» — 4-5 экранов, «подробно» — около 10.
+  CHECK(chatopt::lengthPages(1) == 5);    // «обычно» — 5 экранов
+  CHECK(chatopt::lengthPages(2) == 10);   // «подробно» — 10 экранов
+
+  // У «кратко» потолок всё равно должен быть заметно выше двух-трёх
+  // предложений, иначе ответ начнёт обрываться.
+  CHECK(chatopt::lengthTarget(0) >= 300);
+}
+
+// Страница — это 5 строк по ~29 знаков.
+static void test_page_math() {
+  CHECK(chatopt::kCharsPerPage == 145);
+  CHECK(chatopt::tokensForPages(1) == 25);    // 145 знаков / 6
+  CHECK(chatopt::tokensForPages(10) == 242);  // 1450 / 6
+  // Перевод в обе стороны согласован.
+  for (int p = 1; p <= 15; ++p) {
+    const int t = chatopt::tokensForPages(p);
+    CHECK((size_t)t * chatopt::kCharsPerTokenX10 / 10 >=
+          (size_t)p * chatopt::kCharsPerPage);
+  }
 }
 
 // Уровень вне списка (мусор в NVS) — «кратко», а не падение.
@@ -106,9 +126,9 @@ static void test_next_step() {
   CHECK(chatopt::nextStep(chatopt::kTurnSteps, chatopt::kTurnStepsCount, 0) == 1);
   CHECK(chatopt::nextStep(chatopt::kTurnSteps, chatopt::kTurnStepsCount, 5) == 8);
   CHECK(chatopt::nextStep(chatopt::kTurnSteps, chatopt::kTurnStepsCount, 12) == 0);
-  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 0) == 300);
-  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 2000) == 3000);
-  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 3000) == 0);
+  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 0) == 150);
+  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 1200) == 2400);
+  CHECK(chatopt::nextStep(chatopt::kTokenSteps, chatopt::kTokenStepsCount, 2400) == 0);
   // Значение не из списка (например, после смены прошивки) — начинаем сначала.
   CHECK(chatopt::nextStep(chatopt::kTurnSteps, chatopt::kTurnStepsCount, 7) == 0);
 }
@@ -151,6 +171,7 @@ int main() {
   test_stats_empty();
   test_auto_turns();
   test_lengths();
+  test_page_math();
   test_length_clamp();
   test_next_step();
   test_valid();
