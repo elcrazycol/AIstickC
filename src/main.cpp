@@ -24,6 +24,7 @@
 #include "net.h"
 #include "stt.h"
 #include "llm.h"
+#include "plugins.h"
 #include "ui.h"
 #include "font_jbmono.h"
 #include "pure/wav.h"
@@ -300,7 +301,43 @@ void runQuestion() {
 
   llm::Stream st;
   st.onDelta = onDelta;
-  llm::Reply a = llm::ask(g_history.messages(), s.text, st);
+  llm::Options opt;
+  opt.toolsJson = plugins::toolsJson();
+  llm::Reply a = llm::ask(g_history.messages(), s.text, st, opt);
+
+  // Модель вызвала плагин — выполняем действие и показываем панель.
+  if (a.ok && a.toolCall) {
+    const plugins::Result pr =
+        plugins::run(a.toolName.c_str(), a.toolArgs.c_str());
+    g_state = State::Showing;
+    char panel[72];
+    snprintf(panel, sizeof(panel), "%s: %s", a.toolName.c_str(), pr.detail);
+    ui::notice(panel);
+    g_history.addUser(s.text.c_str());
+    g_history.addAssistant(panel);
+    g_history.trim(kChatMaxChars);
+
+    // Плагин может попросить модель прокомментировать результат.
+    if (pr.answerAfter) {
+      g_stream = "";
+      startWaiting();
+      llm::Options fu;
+      fu.toolCallId = a.toolId.c_str();
+      fu.toolName = a.toolName.c_str();
+      fu.toolArgs = a.toolArgs.c_str();
+      fu.toolResult = pr.detail;
+      llm::Reply c = llm::ask(g_history.messages(), s.text, st, fu);
+      if (c.ok && !c.toolCall) {
+        g_history.addAssistant(c.text.c_str());
+        g_history.trim(kChatMaxChars);
+        g_color = kWhite;
+        g_page = 0;
+        wrapInto(c.text.c_str(), g_lines);
+        drawAnswer(g_page);
+      }
+    }
+    return;
+  }
 
   if (a.ok) {
     Serial.printf("[main] ответ: %s\n", a.text.c_str());

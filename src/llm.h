@@ -20,6 +20,12 @@ struct Reply {
   String text;       // ответ модели при ok == true
   String error;      // описание при ok == false
   int httpCode = 0;  // код ответа, если дошло до него
+
+  // Модель вместо ответа вызвала инструмент (плагин).
+  bool toolCall = false;
+  String toolId;     // id вызова — вернём его в tool_call_id
+  String toolName;   // имя плагина
+  String toolArgs;   // собранные аргументы (JSON)
 };
 
 // Обратные вызовы на время стрима.
@@ -32,10 +38,23 @@ struct Stream {
   void* ctx = nullptr;
 };
 
+// Опции запроса.
+struct Options {
+  // Список инструментов (плагинов) для модели. nullptr — обычный запрос.
+  const char* toolsJson = nullptr;
+
+  // Продолжение после вызова инструмента: результат уходит модели как
+  // сообщение role:"tool", чтобы она могла его прокомментировать.
+  const char* toolCallId = nullptr;
+  const char* toolName = nullptr;
+  const char* toolArgs = nullptr;
+  const char* toolResult = nullptr;
+};
+
 // Спрашивает модель по распознанному тексту.
 // history — предыдущие обмены (без текущего вопроса); уходит в запрос как
 // последовательность сообщений system/user/assistant. Пустой userText — ошибка.
 Reply ask(const std::vector<chat::Msg>& history, const String& userText,
-          const Stream& stream = Stream());
+          const Stream& stream = Stream(), const Options& opts = Options());
 
 }  // namespace llm

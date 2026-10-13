@@ -27,6 +27,7 @@
 #include "pure/json_extract.h"
 #include "pure/llm_request.h"
 #include "pure/sse.h"
+#include "pure/tool_call.h"
 
 namespace llm {
 
@@ -64,7 +65,7 @@ int deltaOf(const std::string& json, std::string& out) {
 }  // namespace
 
 Reply ask(const std::vector<chat::Msg>& history, const String& userText,
-          const Stream& stream) {
+          const Stream& stream, const Options& opts) {
   Reply r;
 
   if (userText.length() == 0) {
@@ -81,9 +82,17 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
   }
   msgs.push_back({"user", userText.c_str()});
 
+  // Обычный запрос или продолжение после вызова инструмента.
+  const bool followUp =
+      opts.toolResult != nullptr && opts.toolCallId != nullptr;
   const std::string body =
-      llmreq::buildChat(kLlmModel, msgs, kLlmMaxTokens, true,
-                        kLlmReasoningEffort);
+      followUp ? llmreq::buildToolFollowUp(
+                     kLlmModel, msgs, opts.toolCallId,
+                     opts.toolName ? opts.toolName : "",
+                     opts.toolArgs ? opts.toolArgs : "", opts.toolResult,
+                     kLlmMaxTokens, true, kLlmReasoningEffort)
+               : llmreq::buildChat(kLlmModel, msgs, kLlmMaxTokens, true,
+                                   kLlmReasoningEffort, opts.toolsJson);
   if (body.empty()) {
     r.error = "не собрать запрос";
     return r;
@@ -130,6 +139,9 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
   chunked::Decoder dec;
   sse::Parser parser;
   std::string content;       // накопленный ответ
+  std::string toolId;        // id вызова инструмента (из первой дельты)
+  std::string toolName;      // имя плагина
+  std::string toolArgs;      // аргументы вызова (склеиваются посимвольно)
   std::string plainBody;     // тело ошибки или не-chunked фолбэк
   size_t activity = 0;
   bool done = false;
@@ -157,6 +169,13 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
       } else if (kind == 2 && !piece.empty()) {
         activity += piece.size();
         if (stream.onDelta) stream.onDelta("", 0, activity, stream.ctx);
+      } else {
+        // Модель вызвала инструмент: id и имя приходят в первом куске,
+        // аргументы — посимвольно, их надо склеить.
+        std::string t;
+        if (toolId.empty() && toolx::deltaId(ev.c_str(), t)) toolId = t;
+        if (toolx::deltaName(ev.c_str(), t)) toolName = t;
+        if (toolx::deltaArgs(ev.c_str(), t)) toolArgs += t;
       }
     }
   };
@@ -231,6 +250,18 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
     Serial.printf("[llm] тело ошибки: %s\n", plainBody.c_str());
     r.error = String("HTTP ") + r.httpCode + ": " +
               String(plainBody.substr(0, 200).c_str());
+    return r;
+  }
+
+  // Модель вызвала инструмент вместо обычного ответа.
+  if (!toolName.empty()) {
+    r.toolCall = true;
+    r.toolId = String(toolId.c_str());
+    r.toolName = String(toolName.c_str());
+    r.toolArgs = String(toolArgs.c_str());
+    r.ok = true;
+    Serial.printf("[llm] вызов плагина: %s(%s)\n", toolName.c_str(),
+                  toolArgs.c_str());
     return r;
   }
 

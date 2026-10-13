@@ -70,11 +70,12 @@ inline void appendEscaped(std::string& out, const char* s) {
 }
 
 // Тело запроса chat/completions из произвольного набора реплик. Порядок
-// ключей: model, messages, max_tokens[, stream][, reasoning_effort].
+// ключей: model, messages, max_tokens[, stream][, reasoning_effort][, tools].
 // Роли — "system", "user", "assistant".
 inline std::string buildChat(const char* model, const std::vector<Msg>& msgs,
                              int maxTokens, bool stream = false,
-                             const char* reasoningEffort = nullptr) {
+                             const char* reasoningEffort = nullptr,
+                             const char* toolsJson = nullptr) {
   std::string out;
   out.reserve(320 + msgs.size() * 32);
 
@@ -90,6 +91,59 @@ inline std::string buildChat(const char* model, const std::vector<Msg>& msgs,
     out += "\"}";
   }
   out += "],\"max_tokens\":";
+  out += std::to_string(maxTokens);
+  if (stream) out += ",\"stream\":true";
+  if (reasoningEffort != nullptr && reasoningEffort[0] != 0) {
+    out += ",\"reasoning_effort\":\"";
+    appendEscaped(out, reasoningEffort);
+    out += '"';
+  }
+  if (toolsJson != nullptr && toolsJson[0] != 0) {
+    out += ",\"tools\":";
+    out += toolsJson;
+    out += ",\"tool_choice\":\"auto\"";
+  }
+  out += '}';
+  return out;
+}
+
+// Продолжение диалога после вызова инструмента: к истории добавляется
+// сообщение ассистента с tool_calls и сообщение role:"tool" с результатом.
+// Так модель видит, что сделал плагин, и может это прокомментировать.
+inline std::string buildToolFollowUp(const char* model,
+                                     const std::vector<Msg>& msgs,
+                                     const char* callId, const char* fnName,
+                                     const char* argsJson, const char* result,
+                                     int maxTokens, bool stream = true,
+                                     const char* reasoningEffort = nullptr) {
+  std::string out = "{\"model\":\"";
+  appendEscaped(out, model);
+  out += "\",\"messages\":[";
+  for (size_t i = 0; i < msgs.size(); ++i) {
+    if (i != 0) out += ',';
+    out += "{\"role\":\"";
+    appendEscaped(out, msgs[i].role.c_str());
+    out += "\",\"content\":\"";
+    appendEscaped(out, msgs[i].text.c_str());
+    out += "\"}";
+  }
+  if (!msgs.empty()) out += ',';
+
+  out += "{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"";
+  appendEscaped(out, callId);
+  out += "\",\"type\":\"function\",\"function\":{\"name\":\"";
+  appendEscaped(out, fnName);
+  out += "\",\"arguments\":\"";
+  appendEscaped(out, argsJson);
+  out += "\"}}]}";
+
+  out += ",{\"role\":\"tool\",\"tool_call_id\":\"";
+  appendEscaped(out, callId);
+  out += "\",\"content\":\"";
+  appendEscaped(out, result);
+  out += "\"}]";
+
+  out += ",\"max_tokens\":";
   out += std::to_string(maxTokens);
   if (stream) out += ",\"stream\":true";
   if (reasoningEffort != nullptr && reasoningEffort[0] != 0) {
