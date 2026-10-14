@@ -15,6 +15,7 @@
 #include <M5Unified.h>
 #include <Preferences.h>
 #include <esp_sleep.h>
+#include "driver/rtc_io.h"
 
 #include <cmath>
 #include <string>
@@ -157,9 +158,23 @@ void pollIdlePower() {
   // Потребление падает в десятки раз (единицы миллиампер против десятков),
   // а движение по-прежнему будит экран — просто с задержкой до 200 мс.
   if (g_screenOff && g_wifiOff) {
+    // В лёгком сне цифровые подтяжки на выводах гаснут. Кнопки у нас на
+    // внутренних подтяжках, поэтому их выводы повисли бы в воздухе: после
+    // пробуждения они читались бы как нажатые, и первый же опрос «нажал»
+    // бы что-нибудь — например, в панели плагинов удалил бы плагин. Плюс
+    // повисший в низком уровне вывод кнопки будил бы стик сразу же.
+    rtc_gpio_pullup_en((gpio_num_t)37);
+    rtc_gpio_pullup_en((gpio_num_t)39);
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, 0);  // большая кнопка
     esp_sleep_enable_timer_wakeup(kLightSleepUs);
     esp_light_sleep_start();
+
+    // После сна состояние кнопок недостоверно. Читаем их уровень напрямую
+    // и выставляем состояние по факту — тогда ни ложных нажатий, ни
+    // потерянных настоящих.
+    const uint32_t now = millis();
+    M5.BtnA.setRawState(now, digitalRead(37) == LOW);
+    M5.BtnB.setRawState(now, digitalRead(39) == LOW);
   }
 
   const uint32_t sleepAfter = powercfg::sleepMs();

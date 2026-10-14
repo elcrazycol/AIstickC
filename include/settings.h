@@ -25,7 +25,7 @@ constexpr uint32_t kRecordStartMs  = 200;
 constexpr uint32_t kClearHoldMs     = 3000;
 // Удержание BtnB — «назад»: с экрана ответа на главный, из меню на уровень
 // выше. Короче, чем сброс диалога: это просто шаг назад, ждать долго незачем.
-constexpr uint32_t kBackHoldMs      = 1500;
+constexpr uint32_t kBackHoldMs      = 850;
 
 // --- Экран ---
 constexpr int      kScreenRotation  = 1;       // ландшафт: 1 или 3
