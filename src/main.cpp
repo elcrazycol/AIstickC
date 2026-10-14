@@ -201,6 +201,9 @@ uint8_t peakOf(const int16_t* s, size_t n) {
 }
 
 // Экран ответа: текст + индикатор страниц.
+// Строка-пометка инструмента всегда первая; (size_t)-1 — пометки нет.
+size_t noteLine() { return g_note.isEmpty() ? (size_t)-1 : 0; }
+
 void drawAnswer(size_t page) {
   g_page = page;
   g_drawnPage = page;
@@ -208,7 +211,8 @@ void drawAnswer(size_t page) {
   g_drawnTo = (page + 1) * ui::kBodyLines;
   ui::dotsStop();
   ui::answerReset();
-  ui::answerText(g_lines, page * ui::kBodyLines, g_color);
+  ui::answerLines(g_lines, page * ui::kBodyLines, page * ui::kBodyLines,
+                  (page + 1) * ui::kBodyLines, g_color, noteLine());
   ui::pageIndicator(page, g_drawnTotal);
 }
 
@@ -313,7 +317,7 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
     g_drawnPage = g_page;
     g_drawnTotal = total;
     g_drawnTo = first;
-    ui::answerLines(g_lines, first, first, last, kWhite);
+    ui::answerLines(g_lines, first, first, last, kWhite, noteLine());
     ui::pageIndicator(g_page, total);
     g_drawnTo = last;
     return;
@@ -322,7 +326,7 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
   if (g_page == total - 1 && last > first) {
     size_t start = (g_drawnTo > first) ? g_drawnTo - 1 : first;
     if (start >= last) start = last - 1;
-    ui::answerLines(g_lines, first, start, last, kWhite);
+    ui::answerLines(g_lines, first, start, last, kWhite, noteLine());
     g_drawnTo = last;
   }
   if (total != g_drawnTotal) {

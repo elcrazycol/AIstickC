@@ -7,6 +7,7 @@
 
 #include "settings.h"
 #include "font_jbmono.h"
+#include "font_small.h"
 #include "idle_image.h"
 
 namespace ui {
@@ -308,21 +309,32 @@ void dotsStop() {
 }
 
 void answerLines(const std::vector<std::string>& lines, size_t pageFirst,
-                 size_t from, size_t to, int color) {
+                 size_t from, size_t to, int color, size_t noteLine) {
   Guard g;
   useFontLocked();
 
   // Фон заливается под каждым глифом — обновление без мерцания, без
   // очистки всего экрана. Видимый префикс строк только растёт, поэтому
   // «хвостов» от прошлого кадра не остаётся.
-  M5.Display.setTextColor(color, kBlack);
   M5.Display.startWrite();
   for (size_t i = from; i < to && i < lines.size() &&
                      i < pageFirst + kBodyLines; ++i) {
     const int y = kFirstBase + (int)(i - pageFirst) * kLineH;
-    M5.Display.setCursor(kMargin, y);
+    const bool note = (i == noteLine);
+    // Пометка инструмента — подпись, а не текст: мелким шрифтом и серым,
+    // как надпись «ищу в интернете», чтобы её не путали с ответом.
+    if (note) {
+      M5.Display.setFont(&kFont_small);
+      M5.Display.setTextColor(kGray, kBlack);
+      M5.Display.setCursor(kMargin, y + 2);
+    } else {
+      M5.Display.setFont(&kFont_jbmono);
+      M5.Display.setTextColor(color, kBlack);
+      M5.Display.setCursor(kMargin, y);
+    }
     M5.Display.print(lines[i].c_str());
   }
+  useFontLocked();  // вернуть основной шрифт
   M5.Display.endWrite();
 }
 

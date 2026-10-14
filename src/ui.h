@@ -60,8 +60,11 @@ void answerText(const std::vector<std::string>& lines, size_t from, int color);
 // Строки [from, to) страницы, верхняя строка которой — pageFirst. Нужно во
 // время стрима: там меняется только последняя строка, и перерисовывать всю
 // страницу двадцать раз в секунду незачем.
+// noteLine — индекс строки-пометки инструмента (мелким серым шрифтом);
+// (size_t)-1, если пометки нет.
 void answerLines(const std::vector<std::string>& lines, size_t pageFirst,
-                 size_t from, size_t to, int color);
+                 size_t from, size_t to, int color,
+                 size_t noteLine = (size_t)-1);
 
 // Индикатор страниц внизу справа.
 // Счётчик страниц «x/y» в верхнем левом углу. Показывается всегда, в том

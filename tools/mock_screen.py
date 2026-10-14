@@ -264,16 +264,27 @@ def draw_dots(img, now_ms, row=0):
                         px[x, y] = c
 
 
-def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE):
+def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE,
+                  note=None):
+    """Экран ответа. note — пометка инструмента: она занимает первую строку
+    первой страницы и рисуется мелким серым шрифтом, как подпись.
+    """
     img = Image.new("RGB", (W, H), BLACK)
     status_bar(img, font, pct, rssi)
-    for i in range(BODY_LINES):
-        idx = page * BODY_LINES + i
-        if idx >= len(lines):
-            break
-        font.text(img, lines[idx], MARGIN, FIRST_BASE + i * font.yadv, color)
-    # Счётчик «x/y» в верхнем левом углу полосы состояния. В прошивке он
-    # ставится датумом по центру строки — здесь та же арифметика.
+    small = None
+    for row in range(BODY_LINES):
+        idx = page * BODY_LINES + row
+        if note and idx == 0:
+            if small is None:
+                small = Font(os.path.join(ROOT, "include", "font_small.h"))
+            small.text(img, note, MARGIN, FIRST_BASE + 2, GRAY)
+            continue
+        i = idx - (1 if note else 0)
+        if i < 0 or i >= len(lines):
+            continue
+        font.text(img, lines[i], MARGIN, FIRST_BASE + row * font.yadv, color)
+
+    # Счётчик «x/y» в верхнем левом углу полосы состояния.
     ind = f"{page + 1}/{total}"
     fill(img.load(), 0, 0, 6 * font.xadv, STATUS_H, BLACK)
     font.text(img, ind, MARGIN, PAGE_BASE - TEXT_H // 2, GRAY)
@@ -398,8 +409,8 @@ def main():
               "ML и там, где нужны богатые абстракции.")
     lines = wrap(font, answer, W - 2 * MARGIN)
     # Пометка инструмента идёт первой строкой над ответом (как в прошивке).
-    save(screen_answer(font, ["поиск: 5 источников, читал 3"] + lines, 0, 2),
-         "screen-answer.png")
+    save(screen_answer(font, lines, 0, 2,
+                       note="поиск: 5 источников, читал 3"), "screen-answer.png")
     save(screen_notice(font, "История разговора очищена"), "screen-notice.png")
     save(screen_plugins(font, [("switch", "installed"), ("weather", "update"),
                                ("lamp", None), ("show_text", "installed")], 1),
