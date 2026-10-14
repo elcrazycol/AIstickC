@@ -10,7 +10,11 @@ namespace net {
 namespace {
 char g_error[96] = {0};
 WiFiClientSecure g_client;
+WiFiClientSecure g_llm;
+WiFiClientSecure g_proxy;
 bool g_clientReady = false;
+bool g_llmReady = false;
+bool g_proxyReady = false;
 }  // namespace
 
 const char* lastError() { return g_error; }
@@ -23,6 +27,24 @@ WiFiClientSecure& tlsClient() {
     g_clientReady = true;
   }
   return g_client;
+}
+
+WiFiClientSecure& proxyClient() {
+  if (!g_proxyReady) {
+    g_proxy.setInsecure();
+    g_proxy.setTimeout(kHttpReadMs);
+    g_proxyReady = true;
+  }
+  return g_proxy;
+}
+
+WiFiClientSecure& llmClient() {
+  if (!g_llmReady) {
+    g_llm.setInsecure();
+    g_llm.setTimeout(kHttpReadMs);
+    g_llmReady = true;
+  }
+  return g_llm;
 }
 
 bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started,

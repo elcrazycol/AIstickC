@@ -98,14 +98,21 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
     return r;
   }
 
-  WiFiClientSecure& c = net::tlsClient();
-  c.setTimeout(kHttpConnectMs);
-
-  Serial.printf("[llm] подключаюсь к %s\n", kLlmHost);
+  WiFiClientSecure& c = net::llmClient();
   const uint32_t t0 = millis();
-  if (!c.connect(kLlmHost, kLlmPort)) {
-    r.error = String("не подключиться к ") + kLlmHost;
-    return r;
+
+  // Соединение держим открытым между вопросами: рукопожатие TLS на ESP32
+  // стоит ~1.5 с, и это самая дорогая часть ответа. Если сервер всё-таки
+  // закрыл соединение — переподключаемся.
+  if (!c.connected()) {
+    c.setTimeout(kHttpConnectMs);
+    Serial.printf("[llm] подключаюсь к %s\n", kLlmHost);
+    if (!c.connect(kLlmHost, kLlmPort)) {
+      r.error = String("не подключиться к ") + kLlmHost;
+      return r;
+    }
+  } else {
+    Serial.println("[llm] соединение уже открыто — рукопожатия не будет");
   }
   c.setTimeout(kHttpReadMs);
 
@@ -119,7 +126,7 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
            "User-Agent: %s\r\n"
            "x-opencode-session: %s\r\n"
            "Content-Length: %u\r\n"
-           "Connection: close\r\n"
+           "Connection: keep-alive\r\n"
            "\r\n",
            kLlmPath, kLlmHost, OPENCODE_API_KEY, kLlmUserAgent, sessionId(),
            (unsigned)body.size());
@@ -244,7 +251,25 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
     if (headerDone && (millis() - idleSince) > kIdleMs) break;
     delay(5);
   }
-  c.stop();
+  // Дочитываем хвост тела — терминальный chunk «0\r\n\r\n». Если его
+  // оставить в сокете, он станет началом следующего ответа на этом же
+  // соединении и сломает разбор статуса.
+  if (headerDone && chunked && !dec.done()) {
+    const uint32_t until = millis() + 300;
+    while (millis() < until && !dec.done()) {
+      if (c.available() > 0) {
+        uint8_t tmp[256];
+        const int n = c.read(tmp, sizeof(tmp));
+        if (n > 0) feedBody((const char*)tmp, (size_t)n);
+        continue;
+      }
+      delay(5);
+    }
+  }
+
+  // Соединение не закрываем: следующему вопросу оно сэкономит рукопожатие.
+  // Ошибка чтения — единственный случай, когда рвём явно.
+  if (!headerDone) c.stop();
 
   if (!headerDone) {
     r.error = String("не разобран статус: ") +

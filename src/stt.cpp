@@ -32,14 +32,20 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
     return r;
   }
 
-  WiFiClientSecure& c = net::tlsClient();
-  c.setTimeout(kHttpConnectMs);
-
-  Serial.printf("[stt] подключаюсь к %s:%d\n", PROXY_HOST, PROXY_PORT);
+  WiFiClientSecure& c = net::proxyClient();
   const uint32_t t0 = millis();
-  if (!c.connect(PROXY_HOST, PROXY_PORT)) {
-    r.error = String("не подключиться к ") + PROXY_HOST;
-    return r;
+
+  // Соединение держим открытым между вопросами: рукопожатие TLS на ESP32
+  // стоит около полутора секунд, а вопросов много.
+  if (!c.connected()) {
+    c.setTimeout(kHttpConnectMs);
+    Serial.printf("[stt] подключаюсь к %s:%d\n", PROXY_HOST, PROXY_PORT);
+    if (!c.connect(PROXY_HOST, PROXY_PORT)) {
+      r.error = String("не подключиться к ") + PROXY_HOST;
+      return r;
+    }
+  } else {
+    Serial.println("[stt] соединение уже открыто — рукопожатия не будет");
   }
   c.setTimeout(kHttpReadMs);
 
@@ -50,7 +56,7 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
            "X-Auth: %s\r\n"
            "Content-Type: %s\r\n"
            "Content-Length: %u\r\n"
-           "Connection: close\r\n"
+           "Connection: keep-alive\r\n"
            "\r\n",
            PROXY_PATH, PROXY_HOST, PROXY_PORT, PROXY_TOKEN,
            kSttContentType, (unsigned)pcmLen);
@@ -77,7 +83,7 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
                 (unsigned)pcmLen, sentMs, kbps, millis() - t0);
 
   const String raw = net::readAll(c, t0, kMaxSttResponse, hooks.onTick, hooks.ctx);
-  c.stop();
+  // Соединение не закрываем — пригодится следующему вопросу.
   Serial.printf("[stt] ответ %u байт за %u мс\n",
                 (unsigned)raw.length(), millis() - t0);
 

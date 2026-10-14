@@ -205,6 +205,13 @@ proxy. The proxy builds a WAV and a multipart request and calls
 `whisper-large-v3-turbo`. The firmware stays simple: no WAV header, no multipart
 on the device.
 
+**Speed.** The most expensive part of a reply is not the model but the TLS
+handshake: on the ESP32 it costs about a second and a half, while the model
+reaches its first token in about a second. So the connections to the proxy and
+to the model are **not closed** between questions (`keep-alive`): the first
+question pays the handshake, the rest do not. Measured on the device: 2.9 s to
+the first token on a fresh connection versus 0.9-1.3 s on a reused one.
+
 **The reply.** `POST /zen/go/v1/chat/completions` with `stream:true` and
 `reasoning_effort:"none"`. The response arrives as `text/event-stream`;
 `delta.content` pieces are printed immediately. The chunked body is decoded
