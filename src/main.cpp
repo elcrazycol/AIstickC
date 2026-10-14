@@ -253,11 +253,20 @@ void showIdle() {
 }
 
 // Начало фазы ожидания: чистый экран и запущенная анимация точек.
-void startWaiting() {
-  g_drawnPage = kNoPage;  // на экране ещё не текст: первый кадр всё сотрёт
+// Сброс накопленного стрима перед новым запросом. Экран не трогаем: его
+// перерисует первый же кадр нового ответа. Без этого текст второго запроса
+// дописывался бы к первому, а экран считал бы часть строк уже нарисованной.
+void resetStream() {
+  g_stream = "";
+  g_page = 0;
+  g_drawnPage = kNoPage;
   g_drawnTotal = 0;
   g_drawnTo = 0;
   g_lastDraw = 0;
+}
+
+void startWaiting() {
+  resetStream();
   ui::answerReset();
   ui::dotsStart();
 }
@@ -546,6 +555,10 @@ void runQuestion() {
     // Плагин просит модель ответить по материалу (поиск): простыню со
     // страниц на экран не выводим, ответит модель.
     if (pr.answerAfter && pr.ask.empty()) {
+      // Новый ответ начинается с чистого листа: иначе он допишется к тому,
+      // что модель успела сказать до вызова инструмента.
+      resetStream();
+
       llm::Options fu;
       fu.maxTokens = chatcfg::effectiveTokens();
       fu.systemPrompt = sys.c_str();
