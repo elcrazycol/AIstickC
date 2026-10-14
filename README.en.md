@@ -49,7 +49,7 @@ Still screens: [idle](docs/images/screen-idle.png),
 [reset panel](docs/images/screen-notice.png),
 [plugin panel](docs/images/screen-plugins.png),
 [settings](docs/images/screen-settings.png),
-[tool call](docs/images/screen-tool.png),
+[tool call](docs/images/screen-tool-preamble.png),
 [dialogue and answer](docs/images/screen-dialog.png).
 
 ## Hardware

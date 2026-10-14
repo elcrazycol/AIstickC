@@ -544,7 +544,13 @@ void runQuestion() {
     // поэтому экран ожидания показываем до него, а не после: иначе экран
     // замирает на старом тексте и кажется, что стик завис. Метка говорит,
     // что именно происходит: «ищу в интернете», «переключаю свет».
-    ui::toolWait(plugins::labelOf(a.toolName.c_str()));
+    // Сколько строк уже занято на текущей странице: их оставляем, чтобы
+    // вступление модели не исчезало на середине ожидания.
+    const size_t firstLine = g_page * ui::kBodyLines;
+    const size_t rest = g_lines.size() > firstLine ? g_lines.size() - firstLine : 0;
+    const int used = (int)(rest < (size_t)ui::kBodyLines ? rest
+                                                         : (size_t)ui::kBodyLines);
+    ui::toolWait(plugins::labelOf(a.toolName.c_str()), used);
 
     const plugins::Result pr =
         plugins::run(a.toolName.c_str(), a.toolArgs.c_str());

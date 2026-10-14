@@ -48,7 +48,7 @@ Wi-Fi и два API.
 [панель сброса](docs/images/screen-notice.png),
 [панель плагинов](docs/images/screen-plugins.png),
 [настройки](docs/images/screen-settings.png),
-[вызов инструмента](docs/images/screen-tool.png),
+[вызов инструмента](docs/images/screen-tool-preamble.png),
 [диалог и ответ](docs/images/screen-dialog.png).
 
 ## Железо

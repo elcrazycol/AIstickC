@@ -353,20 +353,28 @@ void pageIndicator(size_t page, size_t total) {
   M5.Display.setTextDatum(top_left);
 }
 
-void toolWait(const char* label) {
+void toolWait(const char* label, int usedLines) {
   Guard g;
-  M5.Display.fillScreen(kBlack);
-  statusBarLocked();
+
+  // Вступление модели оставляем на месте, если для надписи и точек ещё
+  // есть куда встать (нужны две строки).
+  if (usedLines < 0) usedLines = 0;
+  if (usedLines > kBodyLines - 2) {
+    M5.Display.fillScreen(kBlack);
+    statusBarLocked();
+    usedLines = 0;
+  }
   useFontLocked();
 
   const bool hasLabel = (label != nullptr && label[0] != 0);
-  // С меткой точки уходят на строку ниже, чтобы не наезжать на неё.
-  s_dotsRow = hasLabel ? 1 : 0;
+  const int row = usedLines;
   if (hasLabel) {
     M5.Display.setTextColor(kGray, kBlack);
-    M5.Display.setCursor(kMargin, kFirstBase);
+    M5.Display.setCursor(kMargin, kFirstBase + row * kLineH);
     M5.Display.print(label);
   }
+  // Точки встают строкой ниже надписи, а без неё — сразу под текстом.
+  s_dotsRow = hasLabel ? row + 1 : row;
   s_dotsOn = true;
 }
 

@@ -153,15 +153,27 @@ def font_yadv():
     return _YADV
 
 
-def screen_tool(font, label, pct=78, rssi=4):
+def screen_tool(font, label, preamble=None, pct=78, rssi=4):
     """Экран ожидания инструмента: надпись и точки строкой ниже.
 
-    Повторяет ui::toolWait в src/ui.cpp.
+    Повторяет ui::toolWait в src/ui.cpp. Если модель успела что-то сказать
+    до вызова инструмента, этот текст остаётся на месте, а надпись встаёт
+    под ним — ничего не исчезает на середине ожидания.
     """
     img = Image.new("RGB", (W, H), BLACK)
     status_bar(img, font, pct, rssi)
-    font.text(img, label, MARGIN, FIRST_BASE, GRAY)
-    draw_dots(img, 0, row=1)
+    used = 0
+    if preamble:
+        for i, line in enumerate(preamble[:BODY_LINES]):
+            font.text(img, line, MARGIN, FIRST_BASE + i * font.yadv, WHITE)
+            used = i + 1
+    if used > BODY_LINES - 2:
+        # Вступление заняло почти весь экран — его убираем.
+        img = Image.new("RGB", (W, H), BLACK)
+        status_bar(img, font, pct, rssi)
+        used = 0
+    font.text(img, label, MARGIN, FIRST_BASE + used * font.yadv, GRAY)
+    draw_dots(img, 0, row=used + 1)
     return img
 
 
@@ -405,6 +417,9 @@ def main():
     save(screen_settings(font, 1), "screen-settings.png")
     save(screen_dialog(font, 0), "screen-dialog.png")
     save(screen_tool(font, "ищу в интернете"), "screen-tool.png")
+    save(screen_tool(font, "ищу в интернете",
+                     ["Сейчас посмотрю в сети,", "что нового в Go"]),
+         "screen-tool-preamble.png")
 
     # --- GIF: запись (волны + отсчёт)
     frames = []
