@@ -561,7 +561,12 @@ void runQuestion() {
         g_color = kWhite;
         g_page = 0;
         wrapInto(c.text.c_str(), g_lines);
+        g_state = State::Showing;
         drawAnswer(g_page);
+      } else {
+        // Модель не ответила — не оставляем стик в состоянии «в процессе»:
+        // иначе перестают работать и кнопка, и тряска, и он выглядит мёртвым.
+        showError(c.ok ? "Модель не ответила" : c.error.c_str());
       }
     }
     return;
