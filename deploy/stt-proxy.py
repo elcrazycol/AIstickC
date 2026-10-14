@@ -165,6 +165,15 @@ def jina_read(url):
                             SEARCH_PAGE_CHARS)
 
 
+def plural(n, one, few, many):
+    """Русское склонение: 1 источник, 2 источника, 5 источников."""
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
 def read_chunked(rfile, limit):
     """Читает тело в кодировке chunked.
 
@@ -423,10 +432,21 @@ class Handler(BaseHTTPRequestHandler):
                 parts.append("Со страницы:\n%s" % pages[i])
         text = "\n".join(parts)
 
+        # Короткий факт для строки над ответом: что реально произошло.
+        # Стик покажет его над ответом модели, чтобы было видно, что ответ
+        # пришёл из интернета и насколько глубоко он копал.
+        # Строка тела держит 29 знаков, поэтому пометка короткая: сколько
+        # нашлось и сколько страниц реально прочитано. «Читал» — потому что
+        # «прочитано 3 страницы» уже не влезает и переносится на вторую строку.
+        read_pages = sum(1 for p in pages if p)
+        note = "поиск: %d %s, читал %d" % (
+            len(results), plural(len(results), "источник", "источника", "источников"),
+            read_pages)
+
         self.log_message("поиск «%s»: %d результатов, %d знаков, со страниц %d "
                          "за %d мс", query, len(results), len(text),
-                         sum(1 for p in pages if p), int((time.time() - t0) * 1000))
-        return self._json(200, {"text": text})
+                         read_pages, int((time.time() - t0) * 1000))
+        return self._json(200, {"text": text, "note": note})
 
     def _handle_tuya(self):
         """POST /tuya: {"channel": 1, "state": "on|off|toggle"}."""

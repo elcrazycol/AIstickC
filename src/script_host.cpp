@@ -83,6 +83,11 @@ bool Host::call(const std::string& name,
     out = script::Value::ofNum(0);
     return true;
   }
+  if (name == "note") {
+    note_ = argStr(args, 0);
+    out = script::Value::ofNum(0);
+    return true;
+  }
   if (name == "ask") {
     // Плагин чего-то не знает (например, города): спросим пользователя,
     // ответ придёт следующим запуском скрипта.

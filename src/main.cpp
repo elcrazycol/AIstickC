@@ -83,6 +83,7 @@ constexpr size_t kNoPage = (size_t)-1;  // на экране ещё нет те�
 size_t   g_drawnPage = kNoPage;  // что сейчас на экране
 size_t   g_drawnTotal = 0;       // с каким счётчиком страниц
 size_t   g_drawnTo = 0;          // до какой строки страница отрисована
+String   g_note;                 // пометка над ответом (что сделал инструмент)
 
 // Удержание боковой кнопки: отсчёт и полоска — в модуле hold.
 hold::Watcher g_holdReset(M5.BtnB, kClearHoldMs);   // сброс истории
@@ -163,6 +164,18 @@ int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
 
 void wrapInto(const char* text, std::vector<std::string>& out) {
   textwrap::wrap(text, kBodyW, measureMono, nullptr, out);
+}
+
+// Разметка ответа: если инструмент оставил пометку о том, что сделал, она
+// идёт первой строкой. В память диалога пометка не попадает — она нужна
+// только на экране.
+void wrapAnswer(const char* text) {
+  if (g_note.isEmpty()) {
+    wrapInto(text, g_lines);
+    return;
+  }
+  const String all = g_note + "\n" + text;
+  wrapInto(all.c_str(), g_lines);
 }
 
 void pushWave(uint8_t amp) {
@@ -258,6 +271,7 @@ void showIdle() {
 // дописывался бы к первому, а экран считал бы часть строк уже нарисованной.
 void resetStream() {
   g_stream = "";
+  g_note = "";
   g_page = 0;
   g_drawnPage = kNoPage;
   g_drawnTotal = 0;
@@ -280,7 +294,7 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
   if (now - g_lastDraw < 50) return;
   g_lastDraw = now;
 
-  wrapInto(g_stream.c_str(), g_lines);
+  wrapAnswer(g_stream.c_str());
   const size_t total = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
   if (total == 0) return;
 
@@ -544,13 +558,7 @@ void runQuestion() {
     // поэтому экран ожидания показываем до него, а не после: иначе экран
     // замирает на старом тексте и кажется, что стик завис. Метка говорит,
     // что именно происходит: «ищу в интернете», «переключаю свет».
-    // Сколько строк уже занято на текущей странице: их оставляем, чтобы
-    // вступление модели не исчезало на середине ожидания.
-    const size_t firstLine = g_page * ui::kBodyLines;
-    const size_t rest = g_lines.size() > firstLine ? g_lines.size() - firstLine : 0;
-    const int used = (int)(rest < (size_t)ui::kBodyLines ? rest
-                                                         : (size_t)ui::kBodyLines);
-    ui::toolWait(plugins::labelOf(a.toolName.c_str()), used);
+    ui::toolWait(plugins::labelOf(a.toolName.c_str()));
 
     const plugins::Result pr =
         plugins::run(a.toolName.c_str(), a.toolArgs.c_str());
@@ -564,6 +572,7 @@ void runQuestion() {
       // Новый ответ начинается с чистого листа: иначе он допишется к тому,
       // что модель успела сказать до вызова инструмента.
       resetStream();
+      g_note = String(pr.note.c_str());
 
       llm::Options fu;
       fu.maxTokens = chatcfg::effectiveTokens();
@@ -580,7 +589,7 @@ void runQuestion() {
         trimHistory();
         g_color = kWhite;
         g_page = 0;
-        wrapInto(c.text.c_str(), g_lines);
+        wrapAnswer(c.text.c_str());
         g_state = State::Showing;
         drawAnswer(g_page);
       } else {
@@ -603,7 +612,7 @@ void runQuestion() {
     g_state = State::Showing;
     g_color = kWhite;
     g_page = 0;
-    wrapInto(a.text.c_str(), g_lines);
+    wrapAnswer(a.text.c_str());
     drawAnswer(g_page);
   } else {
     Serial.printf("[main] ошибка LLM: %s\n", a.error.c_str());

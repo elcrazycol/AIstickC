@@ -4,4 +4,5 @@
 # label: ищу в интернете
 
 r = proxy_post("/search", query)
+note(json(r, "note"))
 summarize(json(r, "text"))

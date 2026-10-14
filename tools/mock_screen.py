@@ -153,29 +153,15 @@ def font_yadv():
     return _YADV
 
 
-def screen_tool(font, label, preamble=None, pct=78, rssi=4):
+def screen_tool(font, label, pct=78, rssi=4):
     """Экран ожидания инструмента: надпись и точки строкой ниже.
 
-    Повторяет ui::toolWait в src/ui.cpp. Если модель успела что-то сказать
-    до вызова инструмента, этот текст остаётся на месте, а надпись встаёт
-    под ним — ничего не исчезает на середине ожидания.
+    Повторяет ui::toolWait в src/ui.cpp.
     """
     img = Image.new("RGB", (W, H), BLACK)
     status_bar(img, font, pct, rssi)
-    used = 0
-    if preamble:
-        for i, line in enumerate(preamble[:BODY_LINES]):
-            font.text(img, line, MARGIN, FIRST_BASE + i * font.yadv, WHITE)
-            used = i + 1
-    # Надпись встаёт не ниже третьей строки: если вступление длинное, его
-    # хвост уступает место — строки под надпись расчищаются целиком, но
-    # экран не мигает пустотой, как было при полной очистке.
-    row = min(used, BODY_LINES - 2)
-    for r in (row, row + 1):
-        fill(img.load(), 0, FIRST_BASE + r * font.yadv - 3, W,
-             FIRST_BASE + r * font.yadv + font.yadv, BLACK)
-    font.text(img, label, MARGIN, FIRST_BASE + row * font.yadv, GRAY)
-    draw_dots(img, 0, row=row + 1)
+    font.text(img, label, MARGIN, FIRST_BASE, GRAY)
+    draw_dots(img, 0, row=1)
     return img
 
 
@@ -411,7 +397,9 @@ def main():
               "компиляция и хорошая работа с многопоточностью. Слабее он в GUI, "
               "ML и там, где нужны богатые абстракции.")
     lines = wrap(font, answer, W - 2 * MARGIN)
-    save(screen_answer(font, lines, 0, 2), "screen-answer.png")
+    # Пометка инструмента идёт первой строкой над ответом (как в прошивке).
+    save(screen_answer(font, ["поиск: 5 источников, читал 3"] + lines, 0, 2),
+         "screen-answer.png")
     save(screen_notice(font, "История разговора очищена"), "screen-notice.png")
     save(screen_plugins(font, [("switch", "installed"), ("weather", "update"),
                                ("lamp", None), ("show_text", "installed")], 1),
@@ -419,9 +407,6 @@ def main():
     save(screen_settings(font, 1), "screen-settings.png")
     save(screen_dialog(font, 0), "screen-dialog.png")
     save(screen_tool(font, "ищу в интернете"), "screen-tool.png")
-    save(screen_tool(font, "ищу в интернете",
-                     ["Сейчас посмотрю в сети,", "что нового в Go"]),
-         "screen-tool-preamble.png")
 
     # --- GIF: запись (волны + отсчёт)
     frames = []

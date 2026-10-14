@@ -49,7 +49,7 @@ Still screens: [idle](docs/images/screen-idle.png),
 [reset panel](docs/images/screen-notice.png),
 [plugin panel](docs/images/screen-plugins.png),
 [settings](docs/images/screen-settings.png),
-[tool call](docs/images/screen-tool-preamble.png),
+[tool call](docs/images/screen-tool.png),
 [dialogue and answer](docs/images/screen-dialog.png).
 
 ## Hardware
@@ -424,6 +424,17 @@ a "Which city?" panel appears, and the next utterance is not sent to the model �
 it goes to the plugin. Weather comes from `wttr.in` (no key), and the answer is
 assembled into Russian: the condition is translated with a dictionary, and the
 wind arrow, which the font lacks, is stripped.
+
+**Tool note.** If a plugin leaves a note about what it did (`note(...)`), it
+becomes the first line above the model's answer:
+
+```
+поиск: 5 источников, читал 3
+В свежем релизе Go 1.27 появилось…
+```
+
+You can see the answer came from the web and how deep the tool dug. The note is
+not written to the dialogue memory — it exists only on screen.
 
 **Web search.** The `web_search` plugin gives the assistant fresh facts. The
 stick sends the query to the proxy, which takes the results from a local

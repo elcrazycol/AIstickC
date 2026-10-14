@@ -196,6 +196,7 @@ Result runScript(const Script& sc, const std::map<std::string, script::Value>& i
   r.text = j->host.result().empty() ? std::string("выполнено") : j->host.result();
   r.asAnswer = j->host.asAnswer();
   r.answerAfter = j->host.summarize();
+  r.note = j->host.note();
   r.ok = true;
   // Результат поиска бывает на килобайты — в лог столько лить незачем.
   const char* tail = r.text.size() > 120 ? "…" : "";
