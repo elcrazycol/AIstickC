@@ -134,8 +134,13 @@ bool connectWifi(uint32_t timeoutMs) {
     return false;
   }
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, WIFI_PASS);
+  // Модуль уже поднимается — второй begin() сбросил бы ассоциацию и добавил
+  // времени. Достаточно дождаться результата.
+  const wl_status_t was = WiFi.status();
+  if (was != WL_CONNECTED && was != WL_IDLE_STATUS) {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, WIFI_PASS);
+  }
 
   const uint32_t started = millis();
   while (WiFi.status() != WL_CONNECTED) {
@@ -166,6 +171,24 @@ bool connectWifi(uint32_t timeoutMs) {
 
   snprintf(g_error, sizeof(g_error), "ok");
   return true;
+}
+
+void wakeWifi() {
+  const char* ssid = WIFI_SSID;
+  if (ssid == nullptr || ssid[0] == 0) return;
+
+  // Уже подключены или уже подключаемся — второй begin() только сбросил бы
+  // ассоциацию и добавил времени.
+  const wl_status_t st = WiFi.status();
+  if (st == WL_CONNECTED || st == WL_IDLE_STATUS) return;
+
+  // Не ждём: экран в этот момент только что проснулся, и заморозить его на
+  // секунды подключения нельзя. Модуль ассоциируется в фоне, а connectWifi()
+  // потом просто дождётся результата — обычно уже готового.
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, WIFI_PASS);
+  WiFi.setSleep(false);
+  Serial.println("[net] Wi-Fi поднимаю сразу при пробуждении");
 }
 
 }  // namespace net

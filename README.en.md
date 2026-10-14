@@ -475,7 +475,7 @@ Idle power is saved in steps (thresholds in `include/settings.h`):
 | After | What happens |
 |---|---|
 | 20 s | backlight off (returns on a button **or movement**) |
-| 90 s | Wi-Fi off (the next question brings it back) |
+| 90 s | Wi-Fi off (it comes back the moment the stick wakes) |
 | as configured | deep sleep; the big button wakes it |
 
 **When idle, the CPU really sleeps.** Once the screen is off and Wi-Fi is down,
@@ -488,6 +488,15 @@ sleep. Movement still wakes the screen, just with up to a 200 ms delay.
 it is exactly 1 g, and lifting the stick pushes it aside. Pick the stick up and
 the screen lights up, no button needed. Shaking does not open the menu while the
 screen is off: picking it up is not a request for settings.
+
+**Wi-Fi comes up when the stick wakes, not when a question starts.** The moment
+the device wakes — a button, a shake, any movement — the module begins
+associating in the background. It does not block: the screen never freezes and
+nothing waits. Association takes about 1.3 seconds including DHCP, and those
+seconds are spent while the person reaches for the button, not at the start of
+the question. In the usual flow — pick it up, shake, ask — Wi-Fi is already up
+and capture starts without a pause. Before, the connection only started when the
+question did, and those seconds were lost in full.
 
 **How long to wait before deep sleep is your choice** (settings menu): `2 min`,
 `10 min`, `30 min`, `1 hour` or `never`. The power difference is enormous — deep
