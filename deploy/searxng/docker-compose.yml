@@ -1,0 +1,21 @@
+# SearXNG для поиска в интернете: локальный, без абонентской платы.
+#
+# Слушает только localhost — наружу его выставляет прокси, и только со своим
+# общим секретом. Воркеры ужаты, чтобы укладываться в ~100 МБ памяти.
+#
+#   docker compose up -d
+#
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+      - SEARXNG_UWSGI_WORKERS=1
+      - SEARXNG_UWSGI_THREADS=2
+    mem_limit: 200m

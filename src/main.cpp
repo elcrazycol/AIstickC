@@ -531,14 +531,20 @@ void runQuestion() {
 
   // Модель вызвала плагин — выполняем действие.
   if (a.ok && a.toolCall) {
+    // Плагин может работать секунды (поиск в интернете ходит по страницам),
+    // поэтому точки показываем до него, а не после: иначе экран замирает
+    // на старом тексте и кажется, что стик завис.
+    startWaiting();
+
     const plugins::Result pr =
         plugins::run(a.toolName.c_str(), a.toolArgs.c_str());
-    showPluginResult(pr);
 
-    // Плагин может попросить модель прокомментировать результат.
+    // Панель результата — только если модель отвечать не будет.
+    if (!pr.answerAfter) showPluginResult(pr);
+
+    // Плагин просит модель ответить по материалу (поиск): простыню со
+    // страниц на экран не выводим, ответит модель.
     if (pr.answerAfter && pr.ask.empty()) {
-      g_stream = "";
-      startWaiting();
       llm::Options fu;
       fu.maxTokens = chatcfg::effectiveTokens();
       fu.systemPrompt = sys.c_str();

@@ -1,0 +1,41 @@
+# Настройки SearXNG для ассистента.
+#
+# Два главных отличия от стандартных:
+#   formats: json  — без этого API отвечает 403, а нам нужен именно JSON;
+#   limiter: false — иначе SearXNG требует Redis и режет частые запросы.
+#
+# Движки подобраны так, чтобы не банить дешёвые VPS: Google отключён (он
+# быстро выдаёт капчу), вместо него Startpage — это прокси над Google.
+use_default_settings: true
+
+general:
+  instance_name: "AIstickC search"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+server:
+  # Заменяется на сервере на случайную строку: см. deploy/README.md
+  secret_key: "CHANGE_ME_RANDOM_SECRET"
+  limiter: false
+  image_proxy: false
+
+outgoing:
+  request_timeout: 2.5
+  max_request_timeout: 4.0
+
+engines:
+  - name: google
+    disabled: true
+  - name: startpage
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: qwant
+    disabled: false

@@ -74,6 +74,15 @@ bool Host::call(const std::string& name,
     out = script::Value::ofNum(0);
     return true;
   }
+  if (name == "summarize") {
+    // Материал не показываем как есть (это может быть простыня со страниц),
+    // а отдаём модели: она сделает из него внятный ответ.
+    result_ = argStr(args, 0);
+    asAnswer_ = false;
+    summarize_ = true;
+    out = script::Value::ofNum(0);
+    return true;
+  }
   if (name == "ask") {
     // Плагин чего-то не знает (например, города): спросим пользователя,
     // ответ придёт следующим запуском скрипта.

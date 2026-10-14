@@ -6,6 +6,7 @@
 //   log(текст)                        — в Serial
 //   show(текст)                       — панель на экране стика
 //   answer(текст)                     — длинный ответ (как ответ модели)
+//   summarize(текст)                  — отдать материал модели, она ответит
 //   ask(текст)                        — уточняющий вопрос пользователю
 //   len(s) / str(x) / num(x) / contains(s,sub)
 //   json(текст, путь)                 — вытащить поле ("state" или "a/[0]/b")
@@ -31,11 +32,15 @@ class Host : public script::Host {
   // Что скрипт показал: show(), answer() или ask().
   const std::string& result() const { return result_; }
   bool asAnswer() const { return asAnswer_; }
+  // Скрипт просит не показывать текст как есть, а отдать его модели:
+  // она напишет ответ по этому материалу. Нужно для поиска в интернете.
+  bool summarize() const { return summarize_; }
   bool asked() const { return asked_; }
 
  private:
   std::string result_;
   bool asAnswer_ = false;
+  bool summarize_ = false;
   bool asked_ = false;
 };
 

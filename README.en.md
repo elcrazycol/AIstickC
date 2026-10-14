@@ -419,6 +419,13 @@ it goes to the plugin. Weather comes from `wttr.in` (no key), and the answer is
 assembled into Russian: the condition is translated with a dictionary, and the
 wind arrow, which the font lacks, is stripped.
 
+**Web search.** The `web_search` plugin gives the assistant fresh facts. The
+stick sends the query to the proxy, which takes the results from a local
+SearXNG instance and reads the top three pages in parallel through `r.jina.ai`
+(clean Markdown, no HTML parsing on our side). The material goes to the model,
+which answers from it — so versions, prices and events the model never learned
+show up in the reply. Takes 4-5 seconds.
+
 When a plugin runs, a short result panel appears and disappears back to the idle
 screen by itself after a couple of seconds. The exchange is deliberately **not**
 stored in the dialogue memory: otherwise the model starts copying the note as

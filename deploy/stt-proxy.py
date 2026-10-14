@@ -43,6 +43,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import concurrent.futures
+import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -84,6 +87,82 @@ TUYA_HOST = TUYA_HOSTS.get(TUYA_REGION, TUYA_HOSTS["eu"])
 # Кэш токена: живёт сутки, берём один раз.
 _tuya_token = None
 _tuya_token_until = 0.0
+
+
+# --- поиск в интернете ---
+#
+# Связка: локальный SearXNG даёт выдачу, а страницы топ-результатов читаются
+# параллельно через r.jina.ai — он отдаёт чистый Markdown, поэтому парсить
+# HTML на нашей стороне не нужно. Модель получает материал за один вызов
+# инструмента и не должна ходить читать ссылки вторым шагом.
+SEARX_URL = "http://127.0.0.1:8888/search"
+JINA_BASE = "https://r.jina.ai/"
+JINA_KEY = os.environ.get("JINA_KEY", "")   # необязательный: 200 RPM вместо 20
+SEARCH_RESULTS = 5        # сколько результатов показываем модели
+SEARCH_PAGES = 3          # сколько из них вычитываем целиком
+SEARCH_PAGE_CHARS = 2000  # сколько знаков берём со страницы
+SEARX_TIMEOUT = 6
+JINA_TIMEOUT = 7
+# Jina рендерит страницу браузером, и без ограничения это занимает по пять
+# секунд на сайт. X-Timeout говорит ей отдать то, что успела, — замеры:
+# 0.5 с на лёгкой странице, 3.8 с на Википедии, и всё равно с содержимым.
+JINA_RENDER_TIMEOUT = "2.5"
+# Сколько ждём страницы суммарно. Замеры показали разброс от 1.3 до 6.8 с:
+# всё решает самая медленная страница. Ждать её дольше четырёх секунд
+# незачем — кто не успел, пойдёт в ответ сниппетом из выдачи.
+SEARCH_BUDGET = 4.0
+
+
+def http_get(url, timeout, headers=None):
+    req = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def searx_search(query):
+    """Выдача локального SearXNG в виде списка словарей."""
+    url = SEARX_URL + "?" + urllib.parse.urlencode({
+        "q": query, "format": "json", "language": "ru-RU", "safesearch": 0,
+    })
+    data = json.loads(http_get(url, SEARX_TIMEOUT).decode("utf-8", "replace"))
+    out = []
+    for item in (data.get("results") or [])[:SEARCH_RESULTS]:
+        out.append({
+            "title": (item.get("title") or "").strip(),
+            "url": (item.get("url") or "").strip(),
+            "snippet": (item.get("content") or "").strip(),
+        })
+    return [r for r in out if r["url"]]
+
+
+def trim_at_boundary(text, limit):
+    """Обрезает по границе абзаца: рвать мысль на полуслове незачем."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    for sep in ("\n\n", "\n", ". ", " "):
+        pos = cut.rfind(sep)
+        if pos > limit // 2:
+            return cut[:pos].rstrip() + " …"
+    return cut.rstrip() + " …"
+
+
+def jina_read(url):
+    """Чистый Markdown страницы. Пустая строка — не получилось."""
+    headers = {
+        "X-Retain-Images": "none",      # ссылки на картинки — лишние токены
+        "X-Return-Format": "markdown",
+        "X-Timeout": JINA_RENDER_TIMEOUT,
+    }
+    if JINA_KEY:
+        headers["Authorization"] = "Bearer " + JINA_KEY
+    try:
+        raw = http_get(JINA_BASE + url, JINA_TIMEOUT, headers)
+    except Exception as exc:  # noqa: BLE001 — сайт мог не отдаться, это норма
+        print("jina %s: %s" % (url, exc), flush=True)
+        return ""
+    return trim_at_boundary(raw.decode("utf-8", "replace").strip(),
+                            SEARCH_PAGE_CHARS)
 
 
 def read_chunked(rfile, limit):
@@ -291,6 +370,64 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _handle_search(self):
+        """POST /search: тело — сам поисковый запрос сырым текстом.
+
+        Сырым, а не в JSON: в языке скриптов нет экранирования, и собирать
+        из запроса JSON было бы ненадёжно.
+        """
+        t0 = time.time()
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return self._json(400, {"error": "bad content-length"})
+        if length <= 0 or length > 1024:
+            self.log_message("поиск: плохая длина запроса %d", length)
+            return self._json(400, {"error": "bad query"})
+
+        query = self.rfile.read(length).decode("utf-8", "replace").strip()
+        if not query:
+            return self._json(400, {"error": "empty query"})
+
+        try:
+            results = searx_search(query)
+        except Exception as exc:  # noqa: BLE001
+            self.log_message("поиск не удался: %s", exc)
+            return self._json(502, {"error": "searxng: %s" % exc})
+
+        if not results:
+            return self._json(200, {"text": "По запросу ничего не нашлось."})
+
+        # Страницы читаем параллельно: по очереди это заняло бы секунды,
+        # а так — сколько идёт самая медленная из них.
+        pages = [""] * len(results)
+        pool = concurrent.futures.ThreadPoolExecutor(SEARCH_PAGES)
+        jobs = {pool.submit(jina_read, r["url"]): i
+                for i, r in enumerate(results[:SEARCH_PAGES])}
+        try:
+            for job in concurrent.futures.as_completed(jobs, timeout=SEARCH_BUDGET):
+                pages[jobs[job]] = job.result()
+        except concurrent.futures.TimeoutError:
+            # Кто не успел — обойдёмся сниппетом из выдачи: лучше быстрый
+            # ответ с двумя страницами, чем медленный с тремя.
+            pass
+        # Оставшиеся потоки не ждём: у запросов свои таймауты.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+        parts = ["Результаты поиска по запросу «%s»:" % query]
+        for i, r in enumerate(results):
+            parts.append("\n### %d. %s\n%s" % (i + 1, r["title"], r["url"]))
+            if r["snippet"]:
+                parts.append("Из выдачи: %s" % r["snippet"])
+            if pages[i]:
+                parts.append("Со страницы:\n%s" % pages[i])
+        text = "\n".join(parts)
+
+        self.log_message("поиск «%s»: %d результатов, %d знаков, со страниц %d "
+                         "за %d мс", query, len(results), len(text),
+                         sum(1 for p in pages if p), int((time.time() - t0) * 1000))
+        return self._json(200, {"text": text})
+
     def _handle_tuya(self):
         """POST /tuya: {"channel": 1, "state": "on|off|toggle"}."""
         t0 = time.time()
@@ -361,17 +498,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802 — имя задано базовым классом
         t0 = time.time()
 
+        # Общий секрет для всего: без него любой жёг бы квоту Groq,
+        # дёргал наш SearXNG и ходил читать страницы через Jina.
+        token = self.headers.get("X-Auth", "")
+        if not AUTH_TOKEN or not hmac.compare_digest(token, AUTH_TOKEN):
+            self.log_message("отказ: неверный X-Auth")
+            return self._json(401, {"error": "unauthorized"})
+
+        if self.path.startswith("/search"):
+            return self._handle_search()
         if self.path.startswith("/tuya"):
             return self._handle_tuya()
 
         if not self.path.startswith("/stt"):
             return self._json(404, {"error": "not found"})
-
-        # Общий секрет: без него любой жёг бы квоту Groq.
-        token = self.headers.get("X-Auth", "")
-        if not hmac.compare_digest(token, AUTH_TOKEN):
-            self.log_message("отказ: неверный X-Auth")
-            return self._json(401, {"error": "unauthorized"})
 
         if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
             pcm, err = read_chunked(self.rfile, MAX_BYTES)

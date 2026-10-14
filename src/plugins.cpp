@@ -189,8 +189,11 @@ Result runScript(const Script& sc, const std::map<std::string, script::Value>& i
   }
   r.text = j->host.result().empty() ? std::string("выполнено") : j->host.result();
   r.asAnswer = j->host.asAnswer();
+  r.answerAfter = j->host.summarize();
   r.ok = true;
-  Serial.printf("[plug] %s -> %s\n", sc.name.c_str(), r.text.c_str());
+  // Результат поиска бывает на килобайты — в лог столько лить незачем.
+  const char* tail = r.text.size() > 120 ? "…" : "";
+  Serial.printf("[plug] %s -> %.120s%s\n", sc.name.c_str(), r.text.c_str(), tail);
   delete j;
   return r;
 }

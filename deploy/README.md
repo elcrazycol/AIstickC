@@ -129,6 +129,43 @@ curl -sk -X POST https://your.domain:9443/tuya -H "X-Auth: <токен>" \
 | `502 command: ...` | не тот DP-код канала | посмотреть Device → DP в консоли |
 | `401 unauthorized` | не тот `X-Auth` | как у распознавания |
 
+## Поиск в интернете (SearXNG)
+
+Плагин `web_search` со стика ходит на `/search` нашего прокси, а прокси — в
+локальный SearXNG за выдачей и в `r.jina.ai` за содержимым страниц. Сам
+SearXNG наружу не смотрит: он слушает только localhost, а доступ к нему
+закрыт общим `X-Auth` на прокси.
+
+Ставится тремя шагами:
+
+```bash
+scp -r deploy/searxng root@<сервер>:/opt/
+cd /opt/searxng
+sed -i "s|CHANGE_ME_RANDOM_SECRET|$(head -c 32 /dev/urandom | base64 | tr -d '/+=')|" settings.yml
+docker compose up -d
+```
+
+Проверка, что выдача отдаётся в JSON (без этого API отвечает 403):
+
+```bash
+curl -s "http://127.0.0.1:8888/search?q=test&format=json" | head -c 200
+```
+
+Проверка всего пути (запрос — сырым текстом, а не JSON):
+
+```bash
+TOKEN=$(grep -oP '(?<=AUTH_TOKEN=).*' /etc/stt-proxy.env)
+curl -sk -X POST -H "X-Auth: $TOKEN" --data "что нового в Go" \
+     https://127.0.0.1:9443/search | head -c 300
+```
+
+Занимает около 140 МБ памяти. Движки подобраны так, чтобы не банить дешёвые
+VPS: Google отключён (быстро выдаёт капчу), вместо него Startpage.
+
+Если у тебя есть бесплатный ключ Jina (`jina.ai/reader`), положи его в
+`/etc/stt-proxy.env` строкой `JINA_KEY=jina_...` — лимит вырастет с 20 до 200
+запросов в минуту.
+
 ## Если что-то не так
 
 | Симптом | Причина | Что делать |
