@@ -173,11 +173,13 @@ void dotsFrameLocked(uint32_t nowMs) {
   constexpr int r = 3;
   constexpr int gap = 8;
   const int top = kFirstBase + s_dotsRow * kLineH;
-  const int cy = top + 5;
+  // По центру строки: раньше точки стояли у самого верха и почти
+  // прилипали к надписи инструмента.
+  const int cy = top + kLineH / 2;
   const int x0 = kMargin + 3;
 
   M5.Display.startWrite();
-  M5.Display.fillRect(0, top - 3, gap * 2 + 12, 18, kBlack);
+  M5.Display.fillRect(0, top, gap * 2 + 12, kLineH, kBlack);
   const float phase = (float)(nowMs % 900) / 900.0f * 6.2832f;
   for (int i = 0; i < 3; ++i) {
     const int dy = (int)(3.0f * sinf(phase + i * 2.0944f));

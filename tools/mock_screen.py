@@ -250,9 +250,9 @@ def draw_dots(img, now_ms, row=0):
     px = img.load()
     r, gap = 3, 8
     top = FIRST_BASE + row * font_yadv()
-    cy = top + 5
+    cy = top + font_yadv() // 2
     x0 = MARGIN + 3
-    fill(px, 0, top - 3, gap * 2 + 12, top - 3 + 18, BLACK)
+    fill(px, 0, top, gap * 2 + 12, top + font_yadv(), BLACK)
     phase = (now_ms % 900) / 900.0 * 2 * math.pi
     for i in range(3):
         dy = int(3 * math.sin(phase + i * 2.0944))
