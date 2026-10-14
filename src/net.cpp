@@ -107,6 +107,14 @@ bool connectWifi(uint32_t timeoutMs) {
     delay(100);
   }
 
+  // Энергосбережение Wi-Fi выключаем. По умолчанию модем засыпает между
+  // маячками и просыпается раз в ~100 мс — для голосового ассистента это
+  // означает рваную отправку и в разы меньшую скорость. Платим за это
+  // питанием, но Wi-Fi у нас и так поднимается только на время вопроса.
+  Serial.printf("[net] power save был: %d\n", (int)WiFi.getSleep());
+  WiFi.setSleep(false);
+  Serial.printf("[net] power save стал: %d\n", (int)WiFi.getSleep());
+
   // Уровень сигнала: если он слабый, отправка аудио будет медленной.
   const int rssi = WiFi.RSSI();
   Serial.printf("[net] Wi-Fi ок, IP %s, RSSI %d dBm\n",
