@@ -31,6 +31,7 @@
 #include "chat_settings.h"
 #include "hold.h"
 #include "pure/markdown.h"
+#include "pure/motion_wake.h"
 #include "pure/sentence_trim.h"
 #include "webfetch.h"
 #include "pure/ulaw.h"
@@ -104,6 +105,8 @@ std::vector<ui::ListItem> g_pluginRows;  // как показать
 std::vector<std::string> g_pluginNames;  // что ставить/удалять
 bool     g_imuOk = false;
 uint32_t g_lastShake = 0;
+motion::Wake g_wake(kPickupG);  // решение «движение будит экран»
+bool     g_lightSleepLogged = false;  // про лёгкий сон пишем один раз за заход
 
 // --- Энергосбережение ---
 uint32_t g_lastActivity = 0;
@@ -126,6 +129,33 @@ void markActivity() {
     g_screenOff = false;
     ui::screenOn();
   }
+  g_lightSleepLogged = false;  // проснулись — про следующий сон скажем снова
+}
+
+// Движение будит погашенный экран.
+//
+// Проверка живёт рядом с энергосбережением и зовётся из pollIdlePower, а не из
+// цикла состояний: так она работает одинаково со всех экранов — с главного, с
+// ответа и из меню. Раньше её вызывал только основной путь, поэтому казалось,
+// что сон работает не везде.
+//
+// Одного отсчёта мало. Акселерометр шумит, а сразу после лёгкого сна первый
+// замер вообще мусорный: в логе ловилось «движение (0.12 g)», и такой мусор
+// будил экран бесконечно. Поэтому отбрасываем заведомо неверные значения и
+// требуем несколько попаданий подряд.
+bool wakeByMotion() {
+  if (!g_imuOk) return false;
+  float ax = 0, ay = 0, az = 0;
+  if (!M5.Imu.getAccel(&ax, &ay, &az)) return false;
+  const float mag = sqrtf(ax * ax + ay * ay + az * az);
+
+  // Решение принимает модуль: он отбрасывает мусорные отсчёты и требует
+  // несколько попаданий подряд. Проверяется тестами — руками это не потрясти.
+  if (!g_wake.feed(mag)) return false;
+
+  Serial.printf("[main] движение (%.2f g) — будим экран\n", mag);
+  markActivity();
+  return true;
 }
 
 // Простой: сначала гаснет экран, потом Wi-Fi, потом глубокий сон.
@@ -191,6 +221,10 @@ void pollIdlePower() {
     rtc_gpio_pullup_en((gpio_num_t)39);
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, 0);  // большая кнопка
     esp_sleep_enable_timer_wakeup(kLightSleepUs);
+    if (!g_lightSleepLogged) {
+      g_lightSleepLogged = true;
+      Serial.println("[main] простой: лёгкий сон");
+    }
     const uint32_t t0 = millis();
     esp_light_sleep_start();
     g_justSlept = true;
@@ -213,6 +247,11 @@ void pollIdlePower() {
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, 0);
     esp_deep_sleep_start();
   }
+
+  // Движение будит погашенный экран — с любого экрана, потому что проверка
+  // стоит здесь, в общей части энергосбережения. Сразу после лёгкого сна
+  // замер пропускаем: первый отсчёт акселерометра бывает мусорным.
+  if (g_screenOff && !g_justSlept) wakeByMotion();
 }
 
 // Ширина любого символа в моноширинном шрифте — константа.
@@ -1025,26 +1064,19 @@ void pollPlugins() {
   if (M5.BtnA.wasClicked() && n > 0) { togglePlugin(g_pluginIndex); return; }
 }
 
-// Тряска открывает настройки. Порог — заметно больше или меньше 1g,
-// с паузой, чтобы одно движение не открывало меню несколько раз.
+// Тряска открывает настройки. Пробуждение погашенного экрана живёт отдельно,
+// в wakeByMotion(): это разные вещи — будить экран надо со всех экранов, а
+// открывать меню только с главного и с ответа.
 void checkShake() {
   if (!g_imuOk) return;
+  // Экран погашен — движением занимается wakeByMotion(). Меню при этом не
+  // открываем: поднять стик со стола не значит «покажи настройки».
+  if (g_screenOff) return;
   if (g_state != State::Idle && g_state != State::Showing) return;
 
   float ax = 0, ay = 0, az = 0;
   if (!M5.Imu.getAccel(&ax, &ay, &az)) return;
   const float mag = sqrtf(ax * ax + ay * ay + az * az);
-
-  // Экран погашен — движение его будит, и на этом всё. Меню при этом не
-  // открываем: поднять стик со стола не значит «покажи настройки». В покое
-  // ускорение ровно 1 g, при подъёме оно заметно уходит в сторону.
-  if (g_screenOff) {
-    if (mag > kPickupG || mag < 1.0f / kPickupG) {
-      Serial.printf("[main] движение (%.2f g) — будим экран\n", mag);
-      markActivity();
-    }
-    return;
-  }
 
   if (millis() - g_lastShake < 1500) return;
 
