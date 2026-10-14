@@ -899,11 +899,23 @@ void pollPlugins() {
 void checkShake() {
   if (!g_imuOk) return;
   if (g_state != State::Idle && g_state != State::Showing) return;
-  if (millis() - g_lastShake < 1500) return;
 
   float ax = 0, ay = 0, az = 0;
   if (!M5.Imu.getAccel(&ax, &ay, &az)) return;
   const float mag = sqrtf(ax * ax + ay * ay + az * az);
+
+  // Экран погашен — движение его будит, и на этом всё. Меню при этом не
+  // открываем: поднять стик со стола не значит «покажи настройки». В покое
+  // ускорение ровно 1 g, при подъёме оно заметно уходит в сторону.
+  if (g_screenOff) {
+    if (mag > kPickupG || mag < 1.0f / kPickupG) {
+      Serial.printf("[main] движение (%.2f g) — будим экран\n", mag);
+      markActivity();
+    }
+    return;
+  }
+
+  if (millis() - g_lastShake < 1500) return;
 
   // Настоящая тряска — это несколько подряд сильных отсчётов (~60 мс),
   // а случайный толчок даёт один. Поэтому считаем попадания подряд.
