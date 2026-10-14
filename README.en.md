@@ -254,16 +254,22 @@ The screen shows 5 lines of ~29 characters, so a page is about 145 characters,
 and the model produces roughly 6 characters per token (measured on the device).
 The ceiling is therefore computed straight from the page count:
 
-| Level | What we ask | Ceiling | Result |
+| Level | What we ask | Ceiling | Result (measured) |
 |---|---|---|---|
 | `кратко` | 2-3 sentences | 97 tokens | ~3 screens |
 | `обычно` | up to 10 sentences | 121 tokens | ~5 screens |
-| `подробно` | up to 20 sentences | 242 tokens | ~10 screens |
+| `подробно` | up to 16 sentences | 242 tokens | ~10 screens |
 
-The wording with a sentence count is the main lever; the ceiling only guards
-against runaway answers. The vague "3-4 screens of text" was read by the model
-as "write a lot": with a 1200 limit it produced 20+ screens. A limit is a
-ceiling, not a target — on its own it does not lengthen an answer.
+The measurements showed the key fact: **the model writes up to the ceiling**.
+While the ceiling is below what it wants to say, truncation is unavoidable, and
+wording does not cure it — the vague "3-4 screens of text" was read as "write a
+lot" and produced 20+ screens at a 1200 limit.
+
+So truncation is cured by trimming, not by prompting: if an answer still hits
+the ceiling, the stick cuts the unfinished phrase back to the last sentence end.
+No half-word stub is ever left on screen, and the length stays exactly what was
+chosen. If the cut lands inside a code sample, we cut before the sample instead
+of leaving `func main() { fmt.`.
 
 **"Авто" for the limit** means "follow the answer length" — the row shows the
 number that came out of it (`авто 600`). It can also be pinned manually.

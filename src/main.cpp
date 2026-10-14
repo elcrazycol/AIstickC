@@ -28,6 +28,7 @@
 #include "plugins.h"
 #include "chat_settings.h"
 #include "hold.h"
+#include "pure/sentence_trim.h"
 #include "repo.h"
 #include "ui.h"
 #include "font_jbmono.h"
@@ -381,6 +382,19 @@ size_t record(size_t audioBytes, bool* cancelled) {
 }
 
 // Полный цикл: запись → STT → LLM → вывод.
+// Ответ оборван потолком токенов — отрезаем недописанный хвост. Модель
+// пишет до потолка и обрывается на полуслове («…популярен для сервер»),
+// а показать обрубок стыдно. Режем до последнего конца предложения.
+void finishAnswer(llm::Reply& r) {
+  if (!r.truncated) return;
+  std::string t(r.text.c_str());
+  if (trim::trimToSentence(t)) {
+    Serial.printf("[main] хвост подрезан: %u -> %u знаков\n",
+                  (unsigned)r.text.length(), (unsigned)t.size());
+    r.text = String(t.c_str());
+  }
+}
+
 // Обрезка истории по текущей настройке памяти: конкретное число обменов
 // или подобранное «авто» — под средний размер обмена в этом диалоге.
 void trimHistory() {
@@ -471,6 +485,7 @@ void runQuestion() {
                 chatcfg::lengthLabel().c_str(),
                 (unsigned)chatcfg::effectiveTurns(g_history), opt.maxTokens);
   llm::Reply a = llm::ask(g_history.messages(), s.text, st, opt);
+  finishAnswer(a);
 
   // Модель вызвала плагин — выполняем действие.
   if (a.ok && a.toolCall) {
@@ -490,6 +505,7 @@ void runQuestion() {
       fu.toolArgs = a.toolArgs.c_str();
       fu.toolResult = pr.text.c_str();
       llm::Reply c = llm::ask(g_history.messages(), s.text, st, fu);
+      finishAnswer(c);
       if (c.ok && !c.toolCall) {
         g_history.addUser(s.text.c_str());
         g_history.addAssistant(c.text.c_str());
