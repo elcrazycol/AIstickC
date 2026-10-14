@@ -20,6 +20,7 @@ constexpr const char* kPluginsDir = "/plugins";
 constexpr const char* kCacheDir = "/repo";
 
 std::vector<Item> g_items;
+bool g_online = false;
 
 // Адреса манифестов из config.h: "url1,url2".
 std::vector<std::string> sources() {
@@ -124,6 +125,7 @@ void dropVersion(const char* name) {
 
 size_t refresh() {
   g_items.clear();
+  g_online = false;
   const std::vector<std::string> src = sources();
 
   for (size_t i = 0; i < src.size(); ++i) {
@@ -131,6 +133,7 @@ size_t refresh() {
     std::string err;
     const bool online = webfetch::get(src[i], text, err);
     if (online && !text.empty()) {
+      g_online = true;
       LittleFS.mkdir(kCacheDir);
       writeFile(cachePath(i), text);
       Serial.printf("[repo] %s: %u байт\n", src[i].c_str(), (unsigned)text.size());
@@ -162,6 +165,8 @@ size_t refresh() {
 }
 
 const std::vector<Item>& available() { return g_items; }
+
+bool online() { return g_online; }
 
 const Item* find(const char* name) {
   if (name == nullptr) return nullptr;

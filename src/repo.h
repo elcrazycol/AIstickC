@@ -36,6 +36,10 @@ const Item* find(const char* name);
 // Скачивает плагин в /plugins и запоминает версию. false — ошибка (err).
 bool install(const char* name, std::string& err);
 
+// Был ли последний refresh() в сети. Если нет — список показан из кэша,
+// и об этом надо сказать вслух: иначе кажется, что сеть есть.
+bool online();
+
 // Удаляет установленный плагин.
 bool remove(const char* name);
 

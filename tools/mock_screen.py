@@ -308,17 +308,26 @@ def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE,
 def screen_notice(font, text, pct=78, rssi=4):
     img = Image.new("RGB", (W, H), BLACK)
     status_bar(img, font, pct, rssi)
-    tw = font.width(text)
-    bw = tw + 12
+    # Сообщение бывает длиннее экрана: переносим, как в прошивке, и подгоняем
+    # рамку под самую широкую строку.
+    lines = wrap(font, text, W - 16)
+    if len(lines) > 3:
+        lines = lines[:3]
+        lines[-1] += "…"
+    if not lines:
+        return img
+    bw = max(font.width(s) for s in lines) + 12
+    bh = len(lines) * font.yadv + 10
     bx = (W - bw) // 2
-    by = 52
+    by = (H - bh) // 2
     px = img.load()
-    fill(px, bx, by, bx + bw, by + 24, PANEL)
+    fill(px, bx, by, bx + bw, by + bh, PANEL)
     for x in range(bx, bx + bw):
-        px[x, by] = px[x, by + 23] = PANEL_EDGE
-    for y in range(by, by + 24):
+        px[x, by] = px[x, by + bh - 1] = PANEL_EDGE
+    for y in range(by, by + bh):
         px[bx, y] = px[bx + bw - 1, y] = PANEL_EDGE
-    font.text(img, text, bx + 6, by + 24 - 9, WHITE)
+    for i, s in enumerate(lines):
+        font.text(img, s, bx + 6, by + 5 + i * font.yadv, WHITE)
     return img
 
 
@@ -451,6 +460,9 @@ def main():
         "Горутина запускается словом go.",
     ], 0, 1), "screen-code.png")
     save(screen_notice(font, "История разговора очищена"), "screen-notice.png")
+    save(screen_notice(font,
+                       "не поставить: нет связи с raw.githubusercontent.com"),
+         "screen-notice-long.png")
     save(screen_plugins(font, [("switch", "installed"), ("weather", "update"),
                                ("lamp", None), ("show_text", "installed")], 1),
          "screen-plugins.png")

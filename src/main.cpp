@@ -748,6 +748,19 @@ void pollPowerTap() {
 
 // --- меню настроек и панель плагинов ---
 
+// Сеть нужна не только вопросу: панель плагинов тоже ходит в интернет. В
+// простое Wi-Fi гасится, а панель его не поднимала — список приезжал из кэша
+// (и выглядел как «сеть есть»), а скачивание падало с «нет связи с
+// raw.githubusercontent.com». Поэтому перед любым походом в сеть из панели
+// поднимаем радио. true — сеть есть.
+bool ensureWifi() {
+  if (WiFi.status() == WL_CONNECTED) return true;
+  startWaiting();
+  if (!net::connectWifi(kWifiTimeoutMs)) return false;
+  g_wifiOff = false;  // Wi-Fi снова поднят
+  return true;
+}
+
 void drawPlugins() {
   ui::list("Плагины", g_pluginRows, g_pluginIndex);
 }
@@ -788,9 +801,18 @@ void togglePlugin(size_t i) {
     repo::remove(name.c_str());
   } else {
     std::string err;
-    if (!repo::install(name.c_str(), err)) {
+    bool ok = ensureWifi();
+    if (!ok) {
+      err = "нет сети";
+    } else {
+      ok = repo::install(name.c_str(), err);
+    }
+    if (!ok) {
       ui::notice(("не поставить: " + err).c_str());
-      delay(1400);
+      delay(1600);
+    } else {
+      ui::notice(("поставлен " + name).c_str());
+      delay(900);
     }
   }
   plugins::begin();  // перечитать скрипты
@@ -806,7 +828,15 @@ void enterPlugins() {
   markActivity();  // открыли панель — отсчёт простоя начинается заново
   g_state = State::Plugins;
   ui::list("Плагины", {{"обновляю список..."}}, 0);
+  ensureWifi();  // в простое Wi-Fi погашен — поднимаем до похода в сеть
   repo::refresh();
+  // Список берётся из кэша, когда сети нет. Об этом надо сказать вслух:
+  // иначе кажется, что сеть есть, и непонятно, почему плагин не ставится.
+  if (!repo::online()) {
+    ui::notice(repo::available().empty() ? "нет сети и список пуст"
+                                         : "нет сети — список из кэша");
+    delay(1400);
+  }
   buildPluginRows();
   g_pluginIndex = 0;
   drawPlugins();

@@ -9,6 +9,7 @@
 #include "font_jbmono.h"
 #include "font_small.h"
 #include "idle_image.h"
+#include "pure/text_wrap.h"
 
 namespace ui {
 
@@ -397,23 +398,48 @@ void toolWait(const char* label) {
   s_dotsOn = true;
 }
 
+// Ширина любого символа в моноширинном шрифте — константа.
+int measureNotice(const char*, size_t, void*) {
+  return kFont_jbmono_XAdvance;
+}
+
 void notice(const char* text) {
   Guard g;
   M5.Display.fillScreen(kBlack);
   statusBarLocked();
   useFontLocked();
 
-  const int tw = M5.Display.textWidth(text);
-  const int bw = tw + 12;
+  // Сообщение бывает длиннее экрана: «не поставить: нет связи с
+  // raw.githubusercontent.com» — это 50 знаков, а в строку влезает 29.
+  // Раньше текст рисовался одной линией по центру и обрезался с двух сторон
+  // вместе с самой полезной частью — например, с подсказкой про память.
+  // Поэтому переносим и подгоняем рамку под самую широкую строку.
+  std::vector<std::string> lines;
+  textwrap::wrap(text, kScreenW - 16, measureNotice, nullptr, lines);
+  if (lines.empty()) return;
+  constexpr size_t kMaxNoticeLines = 3;
+  if (lines.size() > kMaxNoticeLines) {
+    lines.resize(kMaxNoticeLines);
+    lines.back() += "…";
+  }
+
+  int widest = 0;
+  for (const std::string& s : lines) {
+    const int w = (int)s.size() * kFont_jbmono_XAdvance;
+    if (w > widest) widest = w;
+  }
+  const int bw = widest + 12;
+  const int bh = (int)lines.size() * kLineH + 10;
   const int bx = (kScreenW - bw) / 2;
-  const int by = 52;
-  constexpr int bh = 24;
+  const int by = (kScreenH - bh) / 2;
 
   M5.Display.fillRect(bx, by, bw, bh, 0x18E3);  // тёмная подложка
   M5.Display.drawRect(bx, by, bw, bh, kGray);
   M5.Display.setTextColor(kWhite, 0x18E3);
-  M5.Display.setCursor(bx + 6, by + bh - 9);
-  M5.Display.print(text);
+  for (size_t i = 0; i < lines.size(); ++i) {
+    M5.Display.setCursor(bx + 6, by + 5 + (int)i * kLineH);
+    M5.Display.print(lines[i].c_str());
+  }
 }
 
 void list(const char* title, const std::vector<ListItem>& items,
