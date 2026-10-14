@@ -29,6 +29,7 @@
 #include "chat_settings.h"
 #include "hold.h"
 #include "pure/sentence_trim.h"
+#include "webfetch.h"
 #include "pure/ulaw.h"
 #include "repo.h"
 #include "ui.h"

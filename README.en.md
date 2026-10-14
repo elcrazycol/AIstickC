@@ -216,6 +216,14 @@ standard telephone format: nearly the same quality, half the bytes, so the
 upload is twice as fast. The firmware stays simple: no WAV header, no multipart
 on the device.
 
+**Reading the reply.** The body length is taken from `Content-Length` and
+exactly that much is read. Previously we waited for the socket to close or for
+a second and a half of silence — on a keep-alive connection the server does not
+close the socket, so we paid those 1.5 s on every proxy call (a Tuya call takes
+146 ms server-side and cost 1.9 s on the device). Nagle is also disabled on the
+clients: it delays small packets waiting for an ACK, and latency matters more
+here than header economy.
+
 **Speed.** The most expensive part of a reply is not the model but the TLS
 handshake: on the ESP32 it costs about a second and a half, while the model
 reaches its first token in about a second. So the connections to the proxy and

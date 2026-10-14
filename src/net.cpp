@@ -24,6 +24,10 @@ WiFiClientSecure& tlsClient() {
     // Без пиннинга сертификата: просто и работает, но MITM-незащищено.
     g_client.setInsecure();
     g_client.setTimeout(kHttpReadMs);
+    // Нагл задерживает мелкие пакеты, ожидая подтверждения предыдущего:
+    // для короткого запроса к прокси это лишние round-trip'ы. Нам важнее
+    // задержка, чем экономия на заголовках.
+    g_client.setNoDelay(true);
     g_clientReady = true;
   }
   return g_client;
@@ -33,6 +37,10 @@ WiFiClientSecure& proxyClient() {
   if (!g_proxyReady) {
     g_proxy.setInsecure();
     g_proxy.setTimeout(kHttpReadMs);
+    // Нагл задерживает мелкие пакеты, ожидая подтверждения предыдущего:
+    // для короткого запроса к прокси это лишние round-trip'ы. Нам важнее
+    // задержка, чем экономия на заголовках.
+    g_proxy.setNoDelay(true);
     g_proxyReady = true;
   }
   return g_proxy;
@@ -42,10 +50,27 @@ WiFiClientSecure& llmClient() {
   if (!g_llmReady) {
     g_llm.setInsecure();
     g_llm.setTimeout(kHttpReadMs);
+    // Нагл задерживает мелкие пакеты, ожидая подтверждения предыдущего:
+    // для короткого запроса к прокси это лишние round-trip'ы. Нам важнее
+    // задержка, чем экономия на заголовках.
+    g_llm.setNoDelay(true);
     g_llmReady = true;
   }
   return g_llm;
 }
+
+namespace {
+// Длина тела из заголовков ответа. 0 — не объявлена (chunked или без неё).
+size_t contentLengthOf(const String& head) {
+  const int p = head.indexOf("Content-Length:");
+  if (p < 0) return 0;
+  const int e = head.indexOf("\r\n", p);
+  String v = head.substring(p + 15, e < 0 ? head.length() : e);
+  v.trim();
+  const long n = v.toInt();
+  return n > 0 ? (size_t)n : 0;
+}
+}  // namespace
 
 bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started,
               WriteProgress progress, void* ctx) {
@@ -67,6 +92,8 @@ String readAll(WiFiClient& c, uint32_t started, size_t maxLen, TickFn tick,
                void* ctx) {
   String out;
   uint32_t idleSince = millis();
+  size_t need = 0;  // полная длина ответа, как только узнаем её из заголовков
+
   while (true) {
     if (millis() - started > kHttpReadMs) break;
     while (c.available() > 0) {
@@ -77,8 +104,22 @@ String readAll(WiFiClient& c, uint32_t started, size_t maxLen, TickFn tick,
       if (out.length() > maxLen) break;
     }
     if (out.length() > maxLen) break;
+
+    // Заголовки собрались — значит длина тела известна, и ждать тишины
+    // незачем. На keep-alive соединении сервер сокет не закрывает, поэтому
+    // без этого мы каждый раз теряли бы полторы секунды впустую: именно
+    // столько занимал вызов Tuya при 150 мс работы на сервере.
+    if (need == 0) {
+      const int sep = out.indexOf("\r\n\r\n");
+      if (sep >= 0) {
+        const size_t body = contentLengthOf(out.substring(0, sep));
+        if (body > 0) need = (size_t)sep + 4 + body;
+      }
+    }
+    if (need > 0 && out.length() >= need) break;
+
     if (!c.connected() && c.available() == 0) break;
-    // Сервер ответил и молчит — не ждём таймаут целиком.
+    // Тело без объявленной длины: ждём закрытия или тишины.
     if (out.length() > 0 && (millis() - idleSince) > 1500) break;
     if (tick) tick(ctx);
     delay(5);
