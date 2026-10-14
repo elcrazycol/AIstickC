@@ -25,4 +25,19 @@ struct Hooks {
 Result transcribe(const uint8_t* pcm, size_t pcmLen,
                   const Hooks& hooks = Hooks());
 
+// --- потоковая отправка ---
+//
+// Сеть прокачивает около 92 КБ/с, а речь даёт 16 КБ/с в µ-law — значит,
+// отправлять можно прямо во время говорения, не дожидаясь конца записи.
+// К отпусканию кнопки почти весь звук уже на прокси.
+//
+// streamBegin — подключиться и отправить заголовки (отправкой занимается
+// своя задача), streamPush — отдать очередной кусок µ-law, streamEnd —
+// дослать хвост и получить ответ. Если streamBegin вернул false, работаем
+// как раньше: копим запись и шлём её целиком.
+bool streamBegin();
+bool streamPush(const uint8_t* ulaw, size_t n);
+Result streamEnd();
+void streamAbort();
+
 }  // namespace stt

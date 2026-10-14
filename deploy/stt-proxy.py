@@ -86,6 +86,39 @@ _tuya_token = None
 _tuya_token_until = 0.0
 
 
+def read_chunked(rfile, limit):
+    """Читает тело в кодировке chunked.
+
+    Так стик шлёт звук прямо во время записи: куски уходят по мере того, как
+    человек говорит, а не одной пачкой после отпускания кнопки. Значит, к
+    моменту окончания записи почти всё уже здесь.
+
+    Возвращает (данные, ошибка).
+    """
+    parts = []
+    total = 0
+    while True:
+        line = rfile.readline()
+        if not line:
+            return b"", "обрыв до конца тела"
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            size = int(line.split(b";")[0], 16)
+        except ValueError:
+            return b"", "плохой размер куска"
+        if size == 0:
+            rfile.readline()  # завершающий CRLF
+            break
+        total += size
+        if total > limit:
+            return b"", "audio too large"
+        parts.append(rfile.read(size))
+        rfile.readline()  # CRLF после данных
+    return b"".join(parts), None
+
+
 def _ulaw_table():
     """Таблица разворота µ-law в 16-битные отсчёты (G.711).
 
@@ -340,19 +373,25 @@ class Handler(BaseHTTPRequestHandler):
             self.log_message("отказ: неверный X-Auth")
             return self._json(401, {"error": "unauthorized"})
 
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            return self._json(400, {"error": "bad content-length"})
+        if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
+            pcm, err = read_chunked(self.rfile, MAX_BYTES)
+            if err:
+                code = 413 if err == "audio too large" else 400
+                return self._json(code, {"error": err})
+        else:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                return self._json(400, {"error": "bad content-length"})
 
-        if length <= 0:
-            return self._json(400, {"error": "empty body"})
-        if length > MAX_BYTES:
-            return self._json(413, {"error": "audio too large"})
+            if length <= 0:
+                return self._json(400, {"error": "empty body"})
+            if length > MAX_BYTES:
+                return self._json(413, {"error": "audio too large"})
 
-        pcm = self.rfile.read(length)
-        if len(pcm) != length:
-            return self._json(400, {"error": "short read"})
+            pcm = self.rfile.read(length)
+            if len(pcm) != length:
+                return self._json(400, {"error": "short read"})
 
         # Стик шлёт звук в µ-law (8 бит вместо 16) — разворачиваем в PCM,
         # дальше всё как раньше. Проверка длины идёт уже по развёрнутому.

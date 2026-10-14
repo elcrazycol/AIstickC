@@ -200,7 +200,16 @@ button simply goes back, so memory cannot be wiped by accident while reading.
 
 ## How it works
 
-**Recognition.** The stick sends audio as **µ-law** (8-bit instead of 16, mono,
+**Recognition.** Audio leaves **while you are still speaking**: the network
+moves about 92 KB/s (a 5760-byte TCP window at 62 ms RTT) while speech produces
+16 KB/s in µ-law — the network is three times faster, so the recording is
+uploaded as it is made. By the time you release the button almost all of the
+audio is already on the proxy and only the tail is left to send. The upload runs
+in its own task through a ring buffer, and the end of the stream is marked with
+standard `Transfer-Encoding: chunked`. If streaming fails for any reason, the
+stick sends the recording whole, as before — nothing said is lost.
+
+The stick sends audio as **µ-law** (8-bit instead of 16, mono,
 16 kHz) to its own proxy, which expands it back to LPCM, builds a WAV and a
 multipart request and calls `whisper-large-v3-turbo`. For speech µ-law is the
 standard telephone format: nearly the same quality, half the bytes, so the

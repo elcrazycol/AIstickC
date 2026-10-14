@@ -29,6 +29,7 @@
 #include "chat_settings.h"
 #include "hold.h"
 #include "pure/sentence_trim.h"
+#include "pure/ulaw.h"
 #include "repo.h"
 #include "ui.h"
 #include "font_jbmono.h"
@@ -311,7 +312,8 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
 // Захват audioBytes байт в PSRAM. Возвращает число записанных байт.
 // Пишем, пока держат BtnA. Однократное нажатие BtnB — отмена: запись
 // прекращается, и ничего никуда не уходит.
-size_t record(size_t audioBytes, bool* cancelled) {
+size_t record(size_t audioBytes, bool* cancelled,
+              void (*onAudio)(const uint8_t*, size_t) = nullptr) {
   if (cancelled != nullptr) *cancelled = false;
   if (!M5.Mic.isRunning()) {
     if (!M5.Mic.begin()) {
@@ -366,6 +368,13 @@ size_t record(size_t audioBytes, bool* cancelled) {
 
     pushWave(peakOf(g_chunk, want));
 
+    // Отдаём сжатый кусок на отправку: пока пишем, звук уже уезжает.
+    if (onAudio != nullptr) {
+      static uint8_t ulawBuf[kDmaChunkBytes / 2];
+      ulaw::encodeBuffer((const uint8_t*)g_chunk, want, ulawBuf);
+      onAudio(ulawBuf, want);
+    }
+
     if (cancel) {
       if (cancelled != nullptr) *cancelled = true;
       break;
@@ -391,6 +400,9 @@ size_t record(size_t audioBytes, bool* cancelled) {
   M5.Mic.end();
   return done * 2;
 }
+
+// Кусок записанного звука — сразу на отправку (потоковая выгрузка).
+void pushAudio(const uint8_t* ulaw, size_t n) { stt::streamPush(ulaw, n); }
 
 // Полный цикл: запись → STT → LLM → вывод.
 // Ответ оборван потолком токенов — отрезаем недописанный хвост. Модель
@@ -430,12 +442,17 @@ void runQuestion() {
   g_lastDraw = 0;
   ui::recording(kMaxRecordMs, g_wave, g_waveN);
 
+  // Пока идём запись, звук уже уезжает на прокси: сеть втрое быстрее речи.
+  const bool streaming = stt::streamBegin();
+
   bool cancelled = false;
-  const size_t got = record(kAudioBytes, &cancelled);
+  const size_t got = record(kAudioBytes, &cancelled,
+                            streaming ? pushAudio : nullptr);
   const uint32_t ms = (uint32_t)(got / 2) * 1000 / kSampleRate;
   Serial.printf("[main] записано %u байт (%u мс)\n", (unsigned)got, ms);
 
   if (cancelled) {
+    stt::streamAbort();
     Serial.println("[main] запись отменена");
     ui::notice("Запись отменена");
     delay(700);
@@ -444,6 +461,7 @@ void runQuestion() {
   }
 
   if (got < (size_t)kSampleRate * 2 * kMinRecordMs / 1000) {
+    stt::streamAbort();
     showError("Слишком коротко");
     delay(1200);
     showIdle();
@@ -457,7 +475,19 @@ void runQuestion() {
   startWaiting();
 
   g_state = State::Recognizing;
-  stt::Result s = stt::transcribe(pcm, got);
+  stt::Result s;
+  if (streaming) {
+    // Хвост и ответ: почти всё уже ушло во время записи.
+    s = stt::streamEnd();
+    if (!s.ok) {
+      // Поток не сложился — не теряем сказанное, отправляем целиком.
+      Serial.printf("[stt] поток не сложился (%s) — отправляю целиком\n",
+                    s.error.c_str());
+      s = stt::transcribe(pcm, got);
+    }
+  } else {
+    s = stt::transcribe(pcm, got);
+  }
   if (!s.ok) {
     Serial.printf("[main] ошибка STT: %s\n", s.error.c_str());
     showError(s.error.c_str());
