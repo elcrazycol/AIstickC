@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "config.h"
 #include "settings.h"
 #include "net.h"
 #include "pure/http_response.h"
@@ -55,19 +56,34 @@ bool request(const std::string& method, const std::string& url,
     if (port <= 0) port = 443;
   }
 
-  WiFiClientSecure& c = net::tlsClient();
-  c.setTimeout(kHttpConnectMs);
-  if (!c.connect(host.c_str(), port)) {
-    err = "нет связи с " + host;
-    return false;
+  // К прокси ходим тем же соединением, что и распознавание: хост тот же,
+  // значит рукопожатие не нужно, и третья TLS-сессия не заводится — а на неё
+  // уже не хватает непрерывной памяти (сессия LLM и распознавания держат
+  // по ~40 КБ). К чужим хостам идём общим клиентом и после ответа рвём:
+  // держать лишнюю сессию незачем.
+  const bool toProxy =
+      (host == PROXY_HOST && port == PROXY_PORT);
+  WiFiClientSecure& c = toProxy ? net::proxyClient() : net::tlsClient();
+  if (!c.connected()) {
+    c.setTimeout(kHttpConnectMs);
+    if (!c.connect(host.c_str(), port)) {
+      // Частая причина отказа — не сеть, а нехватка непрерывной памяти под
+      // новую TLS-сессию: скажем об этом прямо, иначе ищешь проблему не там.
+      err = "нет связи с " + host;
+      if (ESP.getMaxAllocHeap() < 60000) err += " (мало памяти под TLS)";
+      return false;
+    }
   }
   c.setTimeout(kHttpReadMs);
 
   std::string head = method + " " + path + " HTTP/1.1\r\nHost: " + host +
                      "\r\nUser-Agent: aistick/0.1\r\n";
   if (!extraHeader.empty()) head += extraHeader + "\r\n";
+  // К прокси — keep-alive: соединение общее с распознаванием, рвать его
+  // после каждого обращения к Tuya незачем. К чужим хостам — close.
   head += "Content-Type: application/json\r\nContent-Length: " +
-          std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n";
+          std::to_string(body.size()) + "\r\nConnection: " +
+          (toProxy ? "keep-alive" : "close") + "\r\n\r\n";
 
   const uint32_t t0 = millis();
   if (!net::writeAll(c, (const uint8_t*)head.data(), head.size(), t0) ||
@@ -78,7 +94,7 @@ bool request(const std::string& method, const std::string& url,
     return false;
   }
   const String raw = net::readAll(c, t0, kMaxFetchBytes);
-  c.stop();
+  if (!toProxy) c.stop();  // чужое соединение не держим
 
   const int code = httpr::parseStatus(raw.c_str());
   const int sep = raw.indexOf("\r\n\r\n");
