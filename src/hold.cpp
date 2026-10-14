@@ -38,6 +38,8 @@ Event Watcher::poll() {
   }
 }
 
+void Watcher::setThreshold(uint32_t ms) { logic_.setThreshold(ms); }
+
 void Watcher::clear() {
   if (showBar_) ui::holdProgress(0);
 }

@@ -23,6 +23,11 @@ class Hold {
   // justPressed / justReleased — фронты за этот вызов.
   Event poll(uint32_t now, bool pressed, bool justPressed, bool justReleased);
 
+  // Порог можно поменять на ходу: времена удержаний выбираются в настройках.
+  void setThreshold(uint32_t ms) {
+    threshold_ = ms == 0 ? 1 : ms;
+  }
+
   int percent() const { return percent_; }   // 0..100 — для полоски
   bool holding() const { return armed_; }    // идёт отсчёт
 

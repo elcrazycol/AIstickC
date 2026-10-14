@@ -372,8 +372,25 @@ def screen_settings(font, index, pct=78, rssi=4):
     return screen_list(font, "Настройки", [
         ("Плагины", "", None),
         ("Диалог и ответ", "", None),
-        ("Глубокий сон", "1 час", None),
+        ("Питание", "", None),
+        ("Кнопки", "", None),
         ("Сбросить настройки", "", None),
+    ], index, pct, rssi)
+
+
+def screen_power(font, index, pct=78, rssi=4):
+    return screen_list(font, "Питание", [
+        ("Экран гаснет", "20 с", None),
+        ("Wi-Fi выкл.", "90 с", None),
+        ("Лёгкий сон", "2 мин", None),
+        ("Глубокий сон", "1 час", None),
+    ], index, pct, rssi)
+
+
+def screen_buttons(font, index, pct=78, rssi=4):
+    return screen_list(font, "Кнопки", [
+        ("Назад (удержание)", "0.85 с", None),
+        ("Сброс сессии", "3 с", None),
     ], index, pct, rssi)
 
 
@@ -418,6 +435,8 @@ def main():
          "screen-plugins.png")
     save(screen_settings(font, 2), "screen-settings.png")
     save(screen_dialog(font, 0), "screen-dialog.png")
+    save(screen_power(font, 2), "screen-power.png")
+    save(screen_buttons(font, 0), "screen-buttons.png")
     save(screen_tool(font, "ищу в интернете"), "screen-tool.png")
 
     # --- GIF: запись (волны + отсчёт)

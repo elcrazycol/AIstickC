@@ -266,8 +266,8 @@ rebuild.
 ### Settings menu
 
 Shake the stick to open the menu: **Plugins** · **Dialogue and answer** ·
-**Deep sleep** · **Reset settings**. Inside the dialogue submenu there are three
-items, the
+**Power** · **Buttons** · **Reset settings**. Inside the dialogue submenu there
+are three items, the
 answer length first, because the token limit follows it:
 
 | Item | Values |

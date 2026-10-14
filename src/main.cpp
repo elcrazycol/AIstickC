@@ -27,7 +27,7 @@
 #include "stt.h"
 #include "llm.h"
 #include "plugins.h"
-#include "power_cfg.h"
+#include "timeouts.h"
 #include "chat_settings.h"
 #include "hold.h"
 #include "pure/sentence_trim.h"
@@ -57,8 +57,7 @@ enum class State {
   Recognizing,
   Streaming,
   Showing,
-  Settings,   // меню настроек (открывается тряской)
-  Dialog,     // подменю «Диалог и ответ»
+  Menu,       // меню настроек (открывается тряской) и его подменю
   Plugins,    // панель плагинов
 };
 State g_state = State::Idle;
@@ -97,7 +96,7 @@ String   g_pendingPlugin;     // плагин, ждущий ответа пол�
 
 // --- меню настроек и панель плагинов ---
 size_t g_menuIndex = 0;
-size_t g_dialogIndex = 0;
+size_t g_menuCount = 0;  // сколько пунктов в открытом меню
 size_t g_pluginIndex = 0;
 std::vector<ui::ListItem> g_pluginRows;  // как показать
 std::vector<std::string> g_pluginNames;  // что ставить/удалять
@@ -123,27 +122,29 @@ void markActivity() {
 void showIdle();
 
 void pollIdlePower() {
-  const bool inMenu = (g_state == State::Settings || g_state == State::Dialog ||
+  const bool inMenu = (g_state == State::Menu ||
                        g_state == State::Plugins);
   if (g_state != State::Idle && g_state != State::Showing && !inMenu) return;
   const uint32_t idle = millis() - g_lastActivity;
+  const uint32_t screenAfter = cfg::screenMs();
+  const uint32_t wifiAfter = cfg::wifiMs();
 
   // Меню не висит вечно: по тому же таймеру уходим на главный экран, а следом
   // гаснет и экран — как в обычном простое. Кнопки в меню обновляют отсчёт,
   // поэтому навигация меню не закрывает.
-  if (inMenu && idle >= kScreenOffMs) {
+  if (inMenu && idle >= screenAfter) {
     Serial.println("[main] простой: выхожу из меню на главный экран");
     showIdle();
   }
 
-  if (!g_screenOff && idle >= kScreenOffMs) {
+  if (!g_screenOff && idle >= screenAfter) {
     g_screenOff = true;
     ui::dotsStop();
     ui::screenOff();
     Serial.println("[main] простой: экран погашен");
   }
 
-  if (!g_wifiOff && idle >= kWifiOffMs) {
+  if (!g_wifiOff && wifiAfter != 0 && idle >= wifiAfter) {
     g_wifiOff = true;
     Serial.println("[main] простой: Wi-Fi выключен");
     WiFi.disconnect(true);
@@ -157,7 +158,8 @@ void pollIdlePower() {
   //
   // Потребление падает в десятки раз (единицы миллиампер против десятков),
   // а движение по-прежнему будит экран — просто с задержкой до 200 мс.
-  if (g_screenOff && g_wifiOff) {
+  const uint32_t lightAfter = cfg::lightMs();
+  if (lightAfter != 0 && g_screenOff && g_wifiOff && idle >= lightAfter) {
     // В лёгком сне цифровые подтяжки на выводах гаснут. Кнопки у нас на
     // внутренних подтяжках, поэтому их выводы повисли бы в воздухе: после
     // пробуждения они читались бы как нажатые, и первый же опрос «нажал»
@@ -177,7 +179,7 @@ void pollIdlePower() {
     M5.BtnB.setRawState(now, digitalRead(39) == LOW);
   }
 
-  const uint32_t sleepAfter = powercfg::sleepMs();
+  const uint32_t sleepAfter = cfg::deepMs();
   if (sleepAfter != 0 && idle >= sleepAfter) {
     Serial.println("[main] простой: глубокий сон");
     ui::screenOff();
@@ -771,135 +773,151 @@ void enterPlugins() {
   drawPlugins();
 }
 
-// Пункты меню настроек. Порядок должен совпадать с settingsRows().
-enum class SettingRow { Plugins = 0, Dialog, Sleep, Reset, Count };
+// Пункты меню настроек. Порядок должен совпадать с menuRows().
+// Пункты главного меню. Порядок должен совпадать с menuRows().
+enum class SettingRow { Plugins = 0, Dialog, Power, Buttons, Reset };
 
-// Пункты подменю «Диалог и ответ». Длина ответа идёт первой: она определяет
-// лимит токенов, который стоит ниже.
-enum class DialogRow { Length = 0, Turns, Tokens, Count };
+enum class DialogRow { Length = 0, Turns, Tokens };
 
-std::vector<ui::ListItem> settingsRows() {
+// Этапы сна по возрастанию простоя: экран, Wi-Fi, лёгкий сон, глубокий.
+enum class PowerRow { Screen = 0, Wifi, Light, Deep };
+
+enum class ButtonRow { Back = 0, ResetHold };
+
+// Какое меню открыто. Устроены они одинаково: список, навигация и возврат
+// на уровень выше, поэтому код общий, а различаются только пункты.
+enum class Menu { Settings, Dialog, Power, Buttons };
+Menu g_menu = Menu::Settings;
+
+const char* menuTitle(Menu m) {
+  switch (m) {
+    case Menu::Dialog: return "Диалог";
+    case Menu::Power: return "Питание";
+    case Menu::Buttons: return "Кнопки";
+    default: return "Настройки";
+  }
+}
+
+std::vector<ui::ListItem> menuRows(Menu m) {
   std::vector<ui::ListItem> rows;
-  rows.push_back(ui::ListItem("Плагины"));
-  rows.push_back(ui::ListItem("Диалог и ответ"));
-  rows.push_back(ui::ListItem("Глубокий сон", powercfg::label()));
-  rows.push_back(ui::ListItem("Сбросить настройки"));
+  switch (m) {
+    case Menu::Dialog:
+      rows.push_back(ui::ListItem("Длина ответа", chatcfg::lengthLabel()));
+      rows.push_back(ui::ListItem("Память диалога", chatcfg::turnsLabel()));
+      rows.push_back(ui::ListItem("Лимит ответа", chatcfg::tokensLabel()));
+      break;
+
+    case Menu::Power:
+      // Порядок — как в жизни: сначала гаснет экран, потом уходит Wi-Fi,
+      // потом сон, и только потом глубокий.
+      rows.push_back(ui::ListItem("Экран гаснет", cfg::screenLabel()));
+      rows.push_back(ui::ListItem("Wi-Fi выкл.", cfg::wifiLabel()));
+      rows.push_back(ui::ListItem("Лёгкий сон", cfg::lightLabel()));
+      rows.push_back(ui::ListItem("Глубокий сон", cfg::deepLabel()));
+      break;
+
+    case Menu::Buttons:
+      rows.push_back(ui::ListItem("Назад (удержание)", cfg::backLabel()));
+      rows.push_back(ui::ListItem("Сброс сессии", cfg::resetLabel()));
+      break;
+
+    default:
+      rows.push_back(ui::ListItem("Плагины"));
+      rows.push_back(ui::ListItem("Диалог и ответ"));
+      rows.push_back(ui::ListItem("Питание"));
+      rows.push_back(ui::ListItem("Кнопки"));
+      rows.push_back(ui::ListItem("Сбросить настройки"));
+      break;
+  }
   return rows;
 }
 
-std::vector<ui::ListItem> dialogRows() {
-  std::vector<ui::ListItem> rows;
-  rows.push_back(ui::ListItem("Длина ответа", chatcfg::lengthLabel()));
-  rows.push_back(ui::ListItem("Память диалога", chatcfg::turnsLabel()));
-  rows.push_back(ui::ListItem("Лимит ответа", chatcfg::tokensLabel()));
-  return rows;
-}
+void drawMenu() { ui::list(menuTitle(g_menu), menuRows(g_menu), g_menuIndex); }
 
-void drawSettings() { ui::list("Настройки", settingsRows(), g_menuIndex); }
-void drawDialog() { ui::list("Диалог", dialogRows(), g_dialogIndex); }
-
-void enterDialog() {
+void openMenu(Menu m) {
   g_holdExit.clear();
   markActivity();  // открыли меню — отсчёт простоя начинается заново
-  g_state = State::Dialog;
-  g_dialogIndex = 0;
-  drawDialog();
-}
-
-void enterSettings() {
-  g_holdExit.clear();
-  markActivity();
-  g_state = State::Settings;
+  g_menu = m;
   g_menuIndex = 0;
-  drawSettings();
+  g_menuCount = menuRows(m).size();
+  g_state = State::Menu;
+  drawMenu();
 }
 
-// BtnA: переключить значение по кругу. Списки короткие, поэтому перебор
-// понятнее отдельного экрана выбора.
-void activateDialog(size_t row) {
-  switch (static_cast<DialogRow>(row)) {
-    case DialogRow::Length:
-      chatcfg::nextLength();
-      break;
-    case DialogRow::Turns:
-      chatcfg::nextTurns();
-      break;
-    case DialogRow::Tokens:
-      chatcfg::nextTokens();
-      break;
-    default:
-      return;
+// Времена удержаний выбираются в настройках, поэтому применяем их к
+// наблюдателям сразу после смены значения.
+void applyHoldTimes() {
+  g_holdExit.setThreshold(cfg::backMs());
+  g_holdReset.setThreshold(cfg::resetMs());
+}
+
+// BtnA: войти в пункт или переключить значение. Списки короткие, поэтому
+// перебор по кругу понятнее отдельного экрана выбора.
+void activateMenu(size_t row) {
+  if (g_menu == Menu::Dialog) {
+    switch (static_cast<DialogRow>(row)) {
+      case DialogRow::Length: chatcfg::nextLength(); break;
+      case DialogRow::Turns: chatcfg::nextTurns(); break;
+      case DialogRow::Tokens: chatcfg::nextTokens(); break;
+      default: return;
+    }
+  } else if (g_menu == Menu::Power) {
+    switch (static_cast<PowerRow>(row)) {
+      case PowerRow::Screen: cfg::nextScreen(); break;
+      case PowerRow::Wifi: cfg::nextWifi(); break;
+      case PowerRow::Light: cfg::nextLight(); break;
+      case PowerRow::Deep: cfg::nextDeep(); break;
+      default: return;
+    }
+  } else if (g_menu == Menu::Buttons) {
+    switch (static_cast<ButtonRow>(row)) {
+      case ButtonRow::Back: cfg::nextBack(); applyHoldTimes(); break;
+      case ButtonRow::ResetHold: cfg::nextReset(); applyHoldTimes(); break;
+      default: return;
+    }
+  } else {
+    switch (static_cast<SettingRow>(row)) {
+      case SettingRow::Plugins: enterPlugins(); return;
+      case SettingRow::Dialog: openMenu(Menu::Dialog); return;
+      case SettingRow::Power: openMenu(Menu::Power); return;
+      case SettingRow::Buttons: openMenu(Menu::Buttons); return;
+      case SettingRow::Reset: chatcfg::reset(); cfg::reset(); applyHoldTimes(); break;
+      default: return;
+    }
   }
-  drawDialog();  // значение видно прямо в строке — это и есть отклик
+  drawMenu();  // значение видно прямо в строке — это и есть отклик
 }
 
-void pollDialog() {
-  const size_t n = (size_t)DialogRow::Count;
+void pollMenu() {
+  markActivity();  // в меню экран не должен гаснуть по таймеру простоя
+  const size_t n = g_menuCount;
 
-  // BtnB отдан модулю удержания: тап — назад по списку, зажатие — на уровень выше.
+  // BtnB отдан модулю удержания: тап — назад по списку, зажатие — на уровень
+  // выше (из главного — на главный экран).
   switch (g_holdExit.poll()) {
     case hold::Event::Fired:
-      enterSettings();
+      if (g_menu == Menu::Settings) {
+        showIdle();
+      } else {
+        openMenu(Menu::Settings);
+      }
       return;
     case hold::Event::Tap:
-      g_dialogIndex = (g_dialogIndex + n - 1) % n;
-      drawDialog();
+      if (n > 0) {
+        g_menuIndex = (g_menuIndex + n - 1) % n;
+        drawMenu();
+      }
       return;
     default:
       break;
   }
 
-  if (M5.BtnPWR.wasClicked()) {
-    g_dialogIndex = (g_dialogIndex + 1) % n;
-    drawDialog();
-    return;
-  }
-  if (M5.BtnA.wasClicked()) { activateDialog(g_dialogIndex); return; }
-}
-
-void activateSetting(size_t row) {
-  switch (static_cast<SettingRow>(row)) {
-    case SettingRow::Plugins:
-      enterPlugins();
-      return;
-    case SettingRow::Dialog:
-      enterDialog();
-      return;
-    case SettingRow::Sleep:
-      powercfg::next();
-      break;
-    case SettingRow::Reset:
-      chatcfg::reset();
-      powercfg::reset();
-      break;
-    default:
-      return;
-  }
-  drawSettings();
-}
-
-void pollSettings() {
-  const size_t n = (size_t)SettingRow::Count;
-
-  // BtnB отдан модулю удержания: тап — назад по списку, зажатие — выход.
-  switch (g_holdExit.poll()) {
-    case hold::Event::Fired:
-      showIdle();
-      return;
-    case hold::Event::Tap:
-      g_menuIndex = (g_menuIndex + n - 1) % n;
-      drawSettings();
-      return;
-    default:
-      break;
-  }
-
-  if (M5.BtnPWR.wasClicked()) {
+  if (M5.BtnPWR.wasClicked() && n > 0) {
     g_menuIndex = (g_menuIndex + 1) % n;
-    drawSettings();
+    drawMenu();
     return;
   }
-  if (M5.BtnA.wasClicked()) { activateSetting(g_menuIndex); return; }
+  if (M5.BtnA.wasClicked() && n > 0) { activateMenu(g_menuIndex); return; }
 }
 
 void pollPlugins() {
@@ -908,7 +926,7 @@ void pollPlugins() {
   // BtnB отдан модулю удержания: тап — назад по списку, зажатие — выход.
   switch (g_holdExit.poll()) {
     case hold::Event::Fired:
-      enterSettings();
+      openMenu(Menu::Settings);
       return;
     case hold::Event::Tap:
       if (n > 0) {
@@ -960,7 +978,7 @@ void checkShake() {
     hits = 0;
     g_lastShake = millis();
     Serial.printf("[main] тряска (%.2f g) — настройки\n", mag);
-    enterSettings();
+    openMenu(Menu::Settings);
   } else {
     hits = 0;
   }
@@ -1003,8 +1021,9 @@ void setup() {
   // Настройки диалога: сколько помнить и сколько просить у модели.
   chatcfg::begin();
 
-  // Сколько ждать перед глубоким сном.
-  powercfg::begin();
+  // Таймауты сна и времена удержаний кнопок.
+  cfg::begin();
+  applyHoldTimes();
 
   // Плагины: скрипты из LittleFS.
   plugins::begin();
@@ -1051,14 +1070,8 @@ void loop() {
 
   // Меню и панель — отдельные режимы: кнопки в них значат другое.
   // Простой проверяем и здесь: иначе меню висело бы с горящим экраном вечно.
-  if (g_state == State::Settings) {
-    pollSettings();
-    pollIdlePower();
-    delay(20);
-    return;
-  }
-  if (g_state == State::Dialog) {
-    pollDialog();
+  if (g_state == State::Menu) {
+    pollMenu();
     pollIdlePower();
     delay(20);
     return;
