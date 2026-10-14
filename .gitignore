@@ -17,3 +17,7 @@ test.wav
 # macOS
 .DS_Store
 .build/
+
+# Скомпилированный Python — не в репозиторий
+__pycache__/
+*.pyc
