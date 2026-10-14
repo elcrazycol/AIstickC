@@ -266,7 +266,8 @@ rebuild.
 ### Settings menu
 
 Shake the stick to open the menu: **Plugins** · **Dialogue and answer** ·
-**Reset settings**. Inside the dialogue submenu there are three items, the
+**Deep sleep** · **Reset settings**. Inside the dialogue submenu there are three
+items, the
 answer length first, because the token limit follows it:
 
 | Item | Values |
@@ -466,13 +467,23 @@ Idle power is saved in steps (thresholds in `include/settings.h`):
 
 | After | What happens |
 |---|---|
-| 20 s | backlight off (returns instantly on any button) |
+| 20 s | backlight off (returns on a button **or movement**) |
 | 90 s | Wi-Fi off (the next question brings it back) |
-| 1 h | deep sleep; the big button wakes it |
+| as configured | deep sleep; the big button wakes it |
 
-Deep sleep rather than a light idle: it saves the most, but Wi-Fi has to come up
-again on wake — hence the one-hour threshold, when an active session is surely
-over.
+**Movement wakes the screen.** The accelerometer watches acceleration: at rest
+it is exactly 1 g, and lifting the stick pushes it aside. Pick the stick up and
+the screen lights up, no button needed. Shaking does not open the menu while the
+screen is off: picking it up is not a request for settings.
+
+**How long to wait before deep sleep is your choice** (settings menu): `2 min`,
+`10 min`, `30 min`, `1 hour` or `never`. The power difference is enormous — deep
+sleep draws microamps against tens of milliamps when idle, a thousandfold.
+
+There is a trade-off worth knowing: **deep sleep loses memory** — the dialogue
+is wiped. Settings and the message counter survive, they live in NVS on flash.
+So "2 min" is for those who do not need history, and an hour or "never" for
+those who value the conversation.
 
 ## Design decisions (deviations from the original spec)
 
