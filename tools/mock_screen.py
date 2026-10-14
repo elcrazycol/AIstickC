@@ -372,6 +372,7 @@ def screen_settings(font, index, pct=78, rssi=4):
     return screen_list(font, "Настройки", [
         ("Плагины", "", None),
         ("Диалог и ответ", "", None),
+        ("Глубокий сон", "1 час", None),
         ("Сбросить настройки", "", None),
     ], index, pct, rssi)
 
@@ -415,7 +416,7 @@ def main():
     save(screen_plugins(font, [("switch", "installed"), ("weather", "update"),
                                ("lamp", None), ("show_text", "installed")], 1),
          "screen-plugins.png")
-    save(screen_settings(font, 1), "screen-settings.png")
+    save(screen_settings(font, 2), "screen-settings.png")
     save(screen_dialog(font, 0), "screen-dialog.png")
     save(screen_tool(font, "ищу в интернете"), "screen-tool.png")
 

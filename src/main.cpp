@@ -26,6 +26,7 @@
 #include "stt.h"
 #include "llm.h"
 #include "plugins.h"
+#include "power_cfg.h"
 #include "chat_settings.h"
 #include "hold.h"
 #include "pure/sentence_trim.h"
@@ -148,7 +149,8 @@ void pollIdlePower() {
     WiFi.mode(WIFI_OFF);
   }
 
-  if (idle >= kDeepSleepMs) {
+  const uint32_t sleepAfter = powercfg::sleepMs();
+  if (sleepAfter != 0 && idle >= sleepAfter) {
     Serial.println("[main] простой: глубокий сон");
     ui::screenOff();
     WiFi.disconnect(true);
@@ -742,7 +744,7 @@ void enterPlugins() {
 }
 
 // Пункты меню настроек. Порядок должен совпадать с settingsRows().
-enum class SettingRow { Plugins = 0, Dialog, Reset, Count };
+enum class SettingRow { Plugins = 0, Dialog, Sleep, Reset, Count };
 
 // Пункты подменю «Диалог и ответ». Длина ответа идёт первой: она определяет
 // лимит токенов, который стоит ниже.
@@ -752,6 +754,7 @@ std::vector<ui::ListItem> settingsRows() {
   std::vector<ui::ListItem> rows;
   rows.push_back(ui::ListItem("Плагины"));
   rows.push_back(ui::ListItem("Диалог и ответ"));
+  rows.push_back(ui::ListItem("Глубокий сон", powercfg::label()));
   rows.push_back(ui::ListItem("Сбросить настройки"));
   return rows;
 }
@@ -834,8 +837,12 @@ void activateSetting(size_t row) {
     case SettingRow::Dialog:
       enterDialog();
       return;
+    case SettingRow::Sleep:
+      powercfg::next();
+      break;
     case SettingRow::Reset:
       chatcfg::reset();
+      powercfg::reset();
       break;
     default:
       return;
@@ -967,6 +974,9 @@ void setup() {
 
   // Настройки диалога: сколько помнить и сколько просить у модели.
   chatcfg::begin();
+
+  // Сколько ждать перед глубоким сном.
+  powercfg::begin();
 
   // Плагины: скрипты из LittleFS.
   plugins::begin();
