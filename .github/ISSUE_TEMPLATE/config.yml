@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Плагины
+    url: https://github.com/elcrazycol/aistick-plugins
+    about: Готовые плагины и формат манифеста — в отдельном репозитории
+  - name: Как поучаствовать
+    url: https://github.com/elcrazycol/AIstickC/blob/master/CONTRIBUTING.md
+    about: Стиль кода, тесты, правила про секреты

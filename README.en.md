@@ -496,6 +496,13 @@ recording — both were exercised only at smaller scales.
 - **M5Unified / M5GFX** — board and display support.
 - **Konata** — the idle-screen picture (a personal decoration, not under MIT).
 
+## Contributing
+
+Ideas, bug reports and pull requests are welcome. The rules are short and live
+in [CONTRIBUTING.md](CONTRIBUTING.md): never commit secrets, put new logic in
+`src/pure/` together with a test, and keep comments in Russian (that is how the
+project was written).
+
 ## License
 
 [MIT](LICENSE). Exceptions: the font is OFL 1.1, and the character picture is not
