@@ -142,6 +142,29 @@ def fill(px, x0, y0, x1, y1, color):
             px[x, y] = color
 
 
+_YADV = None
+
+
+def font_yadv():
+    """Высота строки шрифта — нужна там, где нет объекта Font под рукой."""
+    global _YADV
+    if _YADV is None:
+        _YADV = Font(os.path.join(ROOT, "include", "font_jbmono.h")).yadv
+    return _YADV
+
+
+def screen_tool(font, label, pct=78, rssi=4):
+    """Экран ожидания инструмента: надпись и точки строкой ниже.
+
+    Повторяет ui::toolWait в src/ui.cpp.
+    """
+    img = Image.new("RGB", (W, H), BLACK)
+    status_bar(img, font, pct, rssi)
+    font.text(img, label, MARGIN, FIRST_BASE, GRAY)
+    draw_dots(img, 0, row=1)
+    return img
+
+
 def circle(px, cx, cy, r, color):
     for y in range(cy - r, cy + r + 1):
         for x in range(cx - r, cx + r + 1):
@@ -223,12 +246,13 @@ def screen_waiting(font, phase, pct=78, rssi=4):
     return img
 
 
-def draw_dots(img, now_ms):
+def draw_dots(img, now_ms, row=0):
     px = img.load()
     r, gap = 3, 8
-    cy = FIRST_BASE + 5
+    top = FIRST_BASE + row * font_yadv()
+    cy = top + 5
     x0 = MARGIN + 3
-    fill(px, 0, FIRST_BASE - 3, gap * 2 + 12, FIRST_BASE - 3 + 18, BLACK)
+    fill(px, 0, top - 3, gap * 2 + 12, top - 3 + 18, BLACK)
     phase = (now_ms % 900) / 900.0 * 2 * math.pi
     for i in range(3):
         dy = int(3 * math.sin(phase + i * 2.0944))
@@ -380,6 +404,7 @@ def main():
          "screen-plugins.png")
     save(screen_settings(font, 1), "screen-settings.png")
     save(screen_dialog(font, 0), "screen-dialog.png")
+    save(screen_tool(font, "ищу в интернете"), "screen-tool.png")
 
     # --- GIF: запись (волны + отсчёт)
     frames = []

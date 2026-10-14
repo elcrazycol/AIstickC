@@ -41,4 +41,8 @@ Result runInput(const char* name, const char* userText);
 // Имена загруженных скриптов (для панели плагинов).
 size_t names(std::vector<std::string>& out);
 
+// Короткая надпись для экрана, пока плагин работает («ищу в интернете»).
+// Пусто — плагин её не задал, покажем имя.
+const char* labelOf(const char* name);
+
 }  // namespace plugins

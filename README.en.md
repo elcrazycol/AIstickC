@@ -49,6 +49,7 @@ Still screens: [idle](docs/images/screen-idle.png),
 [reset panel](docs/images/screen-notice.png),
 [plugin panel](docs/images/screen-plugins.png),
 [settings](docs/images/screen-settings.png),
+[tool call](docs/images/screen-tool.png),
 [dialogue and answer](docs/images/screen-dialog.png).
 
 ## Hardware
@@ -380,6 +381,7 @@ Metadata goes into the leading `#` comment header, the body follows:
 # name: weather
 # description: Get today's weather in a city. If no city is given, call without the city parameter.
 # params: city
+# label: смотрю погоду
 
 if city == "" {
   ask("Which city?")
@@ -388,6 +390,10 @@ if city == "" {
   answer(weather_text(raw))
 }
 ```
+
+`label` is a short caption shown on screen while the plugin works: it is
+visible from the first second, which is why it lives in the header rather than
+being set mid-script. Without it the plugin name is shown.
 
 Arguments arrive as variables (`city`, `state`, `channel`). The language is
 deliberately tiny: numbers, strings, `if`/`else`, `while` with a step cap, host

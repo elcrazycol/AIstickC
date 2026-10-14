@@ -26,6 +26,7 @@ constexpr int kFirstBase = 26;  // верх первой строки тела
 
 SemaphoreHandle_t s_lock = nullptr;   // защита дисплея между задачами
 volatile bool s_dotsOn = false;
+int s_dotsRow = 0;  // на какую строку тела рисовать точки
 uint8_t s_brightness = 255;           // исходная яркость подсветки
 
 // Доступ к дисплею только под мьютексом.
@@ -170,11 +171,12 @@ void waveStripLocked(const uint8_t* wave, size_t n, uint32_t nowMs) {
 void dotsFrameLocked(uint32_t nowMs) {
   constexpr int r = 3;
   constexpr int gap = 8;
-  const int cy = kFirstBase + 5;
+  const int top = kFirstBase + s_dotsRow * kLineH;
+  const int cy = top + 5;
   const int x0 = kMargin + 3;
 
   M5.Display.startWrite();
-  M5.Display.fillRect(0, kFirstBase - 3, gap * 2 + 12, 18, kBlack);
+  M5.Display.fillRect(0, top - 3, gap * 2 + 12, 18, kBlack);
   const float phase = (float)(nowMs % 900) / 900.0f * 6.2832f;
   for (int i = 0; i < 3; ++i) {
     const int dy = (int)(3.0f * sinf(phase + i * 2.0944f));
@@ -290,6 +292,7 @@ void answerReset() {
 
 void dotsStart() {
   Guard g;
+  s_dotsRow = 0;  // обычное ожидание — точки с первой строки
   s_dotsOn = true;
 #ifdef AISTICK_DOTS_TEST
   Serial.println("[dots] старт");
@@ -348,6 +351,23 @@ void pageIndicator(size_t page, size_t total) {
   M5.Display.setCursor(kMargin, kPageBase);
   M5.Display.print(ind);
   M5.Display.setTextDatum(top_left);
+}
+
+void toolWait(const char* label) {
+  Guard g;
+  M5.Display.fillScreen(kBlack);
+  statusBarLocked();
+  useFontLocked();
+
+  const bool hasLabel = (label != nullptr && label[0] != 0);
+  // С меткой точки уходят на строку ниже, чтобы не наезжать на неё.
+  s_dotsRow = hasLabel ? 1 : 0;
+  if (hasLabel) {
+    M5.Display.setTextColor(kGray, kBlack);
+    M5.Display.setCursor(kMargin, kFirstBase);
+    M5.Display.print(label);
+  }
+  s_dotsOn = true;
 }
 
 void notice(const char* text) {

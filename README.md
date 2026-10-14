@@ -48,6 +48,7 @@ Wi-Fi и два API.
 [панель сброса](docs/images/screen-notice.png),
 [панель плагинов](docs/images/screen-plugins.png),
 [настройки](docs/images/screen-settings.png),
+[вызов инструмента](docs/images/screen-tool.png),
 [диалог и ответ](docs/images/screen-dialog.png).
 
 ## Железо
@@ -374,6 +375,7 @@ version = 1
 # name: weather
 # description: Узнать погоду на сегодня в городе. Если город не назван — вызови без параметра city.
 # params: city
+# label: смотрю погоду
 
 if city == "" {
   ask("Какой ваш город?")
@@ -382,6 +384,10 @@ if city == "" {
   answer(weather_text(raw))
 }
 ```
+
+`label` — короткая надпись на экране, пока плагин работает: её видно с первой
+секунды, поэтому она в шапке, а не выставляется по ходу скрипта. Без неё
+показывается имя плагина.
 
 Аргументы приходят переменными (`city`, `state`, `channel`). Язык умышленно
 крошечный: числа, строки, `if`/`else`, `while` с ограничением шагов, вызовы

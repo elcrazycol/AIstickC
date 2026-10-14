@@ -8,12 +8,14 @@ static void test_full_header() {
       "# name: switch\n"
       "# description: Включить или выключить\n"
       "# params: channel=1|2|3|all, state*=on|off|toggle\n"
+      "# label: переключаю свет\n"
       "\n"
       "body = \"x\"\n";
   plugmeta::Meta m;
   CHECK(plugmeta::parse(src, m));
   CHECK_STR_EQ(m.name, "switch");
   CHECK_STR_EQ(m.description, "Включить или выключить");
+  CHECK_STR_EQ(m.label, "переключаю свет");
   CHECK_STR_EQ(m.params, "channel=1|2|3|all, state*=on|off|toggle");
   CHECK_STR_EQ(
       m.schema,
@@ -75,7 +77,20 @@ static void test_empty_params_list() {
   CHECK_STR_EQ(m.schema, "{\"type\":\"object\",\"properties\":{}}");
 }
 
+// Без label метка пустая — плагин покажет своё имя.
+static void test_label_optional() {
+  const char* src =
+      "# name: lamp\n"
+      "# description: Лампа\n"
+      "# params: state\n"
+      "x = 1\n";
+  plugmeta::Meta m;
+  CHECK(plugmeta::parse(src, m));
+  CHECK(m.label.empty());
+}
+
 int main() {
+  test_label_optional();
   test_full_header();
   test_no_params();
   test_param_without_enum();

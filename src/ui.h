@@ -90,6 +90,10 @@ struct ListItem {
   ListItem(const std::string& t, const std::string& v) : text(t), value(v) {}
 };
 
+// Экран ожидания инструмента: короткая надпись, что делает плагин, плюс
+// бегущие точки строкой ниже. Пустая надпись — просто точки, как раньше.
+void toolWait(const char* label);
+
 // Список с заголовком: пункты, выделение и прокрутка. Используется
 // меню настроек и панелью плагинов.
 void list(const char* title, const std::vector<ListItem>& items, size_t index);

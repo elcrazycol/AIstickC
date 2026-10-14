@@ -23,6 +23,7 @@ constexpr size_t kMaxSteps = 20000;  // защита от вечного цик�
 struct Script {
   std::string name;
   std::string description;
+  std::string label;  // что писать на экране, пока плагин работает
   std::string schema;
   std::string source;
   std::vector<std::string> params;
@@ -66,6 +67,7 @@ void addScript(const std::string& src) {
   Script s;
   s.name = m.name;
   s.description = m.description;
+  s.label = m.label;
   s.schema = m.schema;
   s.source = src;
   s.params = paramNames(m.params);
@@ -115,6 +117,10 @@ void load() {
   }
   g_tools = toolx::buildTools(g_table.data(), g_table.size());
   Serial.printf("[plug] скриптов: %u\n", (unsigned)g_scripts.size());
+  for (const Script& sc : g_scripts) {
+    Serial.printf("[plug]   %s — «%s»\n", sc.name.c_str(),
+                  labelOf(sc.name.c_str()));
+  }
 }
 
 const Script* find(const std::string& name) {
@@ -242,6 +248,13 @@ Result runInput(const char* name, const char* userText) {
   vars["input"] = script::Value::ofStr(text);
   if (!sc->params.empty()) vars[sc->params[0]] = script::Value::ofStr(text);
   return runScript(*sc, vars);
+}
+
+const char* labelOf(const char* name) {
+  if (name == nullptr) return "";
+  const Script* sc = find(name);
+  if (sc == nullptr) return "";
+  return sc->label.empty() ? sc->name.c_str() : sc->label.c_str();
 }
 
 size_t names(std::vector<std::string>& out) {

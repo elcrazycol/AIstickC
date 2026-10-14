@@ -5,6 +5,11 @@
 //     # name: switch
 //     # description: Включить, выключить или переключить выключатель
 //     # params: channel=1|2|3|all, state*=on|off|toggle
+//     # label: переключаю свет
+//
+// `label` — короткая надпись для экрана, пока плагин работает: «ищу в
+// интернете», «переключаю свет». Её видно с первой секунды, поэтому она в
+// шапке, а не выставляется из скрипта по ходу.
 //
 // `*` после имени параметра — обязательный. Значения через `|` дают enum.
 // Из этого собирается JSON-схема аргументов — ровно в том виде, который
@@ -23,6 +28,7 @@ struct Meta {
   std::string name;         // имя инструмента для модели, латиницей
   std::string description;  // когда вызывать
   std::string params;       // исходная строка параметров (как в шапке)
+  std::string label;        // что писать на экране, пока плагин работает
   std::string schema;       // готовая JSON-схема аргументов
 };
 
@@ -142,6 +148,7 @@ inline bool parse(const char* source, Meta& out) {
     if (key == "name") out.name = val;
     else if (key == "description") out.description = val;
     else if (key == "params") out.params = val;
+    else if (key == "label") out.label = val;
   }
 
   if (out.name.empty()) return false;
