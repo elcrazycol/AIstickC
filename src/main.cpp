@@ -85,6 +85,7 @@ size_t   g_drawnPage = kNoPage;  // что сейчас на экране
 size_t   g_drawnTotal = 0;       // с каким счётчиком страниц
 size_t   g_drawnTo = 0;          // до какой строки страница отрисована
 String   g_note;                 // пометка над ответом (что сделал инструмент)
+bool     g_justSlept = false;    // только что вышли из лёгкого сна
 
 // Удержание боковой кнопки: отсчёт и полоска — в модуле hold.
 hold::Watcher g_holdReset(M5.BtnB, kClearHoldMs);   // сброс истории
@@ -180,7 +181,9 @@ void pollIdlePower() {
     rtc_gpio_pullup_en((gpio_num_t)39);
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, 0);  // большая кнопка
     esp_sleep_enable_timer_wakeup(kLightSleepUs);
+    const uint32_t t0 = millis();
     esp_light_sleep_start();
+    g_justSlept = true;
 
     // После сна состояние кнопок недостоверно. Читаем их уровень напрямую
     // и выставляем состояние по факту — тогда ни ложных нажатий, ни
@@ -1118,5 +1121,9 @@ void loop() {
   pollIdlePower();
   checkShake();
 
-  delay(20);
+  // Только что спали — сразу обратно, без паузы. Эта пауза добавляет
+  // активного времени больше, чем вся работа цикла: в простое она чистый
+  // расход, потому что между засыпаниями мы всё равно ничего не делаем.
+  if (!g_justSlept) delay(20);
+  g_justSlept = false;
 }
