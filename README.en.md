@@ -5,6 +5,7 @@ something, read the answer on the screen. Speech recognition, an LLM reply,
 Cyrillic rendered with its own font, dialogue memory and power saving — all on
 a board the size of a key fob.
 
+[![Release](https://img.shields.io/github/v/release/elcrazycol/AIstickC)](https://github.com/elcrazycol/AIstickC/releases/latest)
 [![tests](https://github.com/elcrazycol/AIstickC/actions/workflows/tests.yml/badge.svg)](https://github.com/elcrazycol/AIstickC/actions/workflows/tests.yml)
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-espressif32-orange)](https://platformio.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
