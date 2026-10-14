@@ -64,8 +64,30 @@ int deltaOf(const std::string& json, std::string& out) {
 
 }  // namespace
 
+namespace {
+Reply askOnce(const std::vector<chat::Msg>& history, const String& userText,
+              const Stream& stream, const Options& opts);
+}  // namespace
+
+// Одна попытка соединения может сорваться: сервер закрыл соединение по
+// простою, DNS моргнул, Wi-Fi только что поднялся. Повтор стоит доли
+// секунды, а без него вопрос теряется целиком — на экране «не подключиться».
+// Повторяем только если не пришло вообще ничего: иначе ответ задвоится.
 Reply ask(const std::vector<chat::Msg>& history, const String& userText,
           const Stream& stream, const Options& opts) {
+  Reply r = askOnce(history, userText, stream, opts);
+  if (!r.ok && r.httpCode == 0 && r.text.length() == 0) {
+    Serial.println("[llm] соединение не сложилось — пробую ещё раз");
+    net::llmClient().stop();
+    delay(150);
+    r = askOnce(history, userText, stream, opts);
+  }
+  return r;
+}
+
+namespace {
+Reply askOnce(const std::vector<chat::Msg>& history, const String& userText,
+              const Stream& stream, const Options& opts) {
   Reply r;
 
   if (userText.length() == 0) {
@@ -329,5 +351,7 @@ Reply ask(const std::vector<chat::Msg>& history, const String& userText,
   }
   return r;
 }
+
+}  // namespace
 
 }  // namespace llm
