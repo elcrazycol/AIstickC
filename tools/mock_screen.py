@@ -183,7 +183,7 @@ def ring(px, cx, cy, r, color):
                 px[x, y] = color
 
 
-def status_bar(img, font, pct, rssi=4, bolt=False):
+def status_bar(img, font, pct, rssi=4):
     px = img.load()
     fill(px, 0, 0, W, STATUS_H, BLACK)
     bx, by, bw, bh = W - MARGIN - 15 - 2, 13 - 8, 15, 8

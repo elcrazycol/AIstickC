@@ -83,40 +83,31 @@ int rssiPercent() {
   return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
 }
 
-// Уровень заряда и зарядка: читаем с AXP192 не чаще раза в 5 с — I2C-запрос
-// на каждый кадр заметно тормозит отрисовку.
+// Уровень заряда: читаем не чаще раза в 5 с — запрос к питанию на каждый кадр
+// заметно тормозит отрисовку.
+//
+// Признака зарядки здесь нет и быть не может: у M5StickC PLUS2 убрали AXP192,
+// батарея меряется через ADC, и M5Unified честно возвращает charge_unknown.
+// Определять заряд по наклону напряжения пробовали — наклон в единицы мВ в
+// минуту при шуме ADC в ±10 мВ, то есть значок загорался бы через минуты.
+// Такой индикатор хуже, чем никакого, поэтому его нет.
 int g_powerPct = -1;
-bool g_powerCharging = false;
 uint32_t g_powerRead = 0;
 
-void powerStateLocked(int& pct, bool& charging) {
+int powerPctLocked() {
   const uint32_t now = millis();
   if (g_powerPct < 0 || now - g_powerRead > 5000) {
     g_powerRead = now;
     g_powerPct = (int)M5.Power.getBatteryLevel();
-    g_powerCharging = (M5.Power.isCharging() == m5::Power_Class::is_charging);
   }
-  pct = g_powerPct;
-  charging = g_powerCharging;
-}
-
-// Молния поверх индикатора заряда.
-void boltLocked(int cx, int top, int h) {
-  const int y0 = top + 1;
-  const int y1 = top + h / 2;
-  const int y2 = top + h - 1;
-  M5.Display.drawLine(cx + 1, y0, cx - 1, y1, kWhite);
-  M5.Display.drawLine(cx - 1, y1, cx + 1, y1, kWhite);
-  M5.Display.drawLine(cx + 1, y1, cx - 1, y2, kWhite);
+  return g_powerPct;
 }
 
 void statusBarDrawLocked(bool clear) {
   if (clear) M5.Display.fillRect(0, 0, kScreenW, kStatusH, kBlack);
 
   // Батарея справа, низ — на одном уровне с палочками.
-  int pct = 0;
-  bool charging = false;
-  powerStateLocked(pct, charging);
+  const int pct = powerPctLocked();
 
   constexpr int bw = 15;
   constexpr int bh = 8;
@@ -133,7 +124,6 @@ void statusBarDrawLocked(bool clear) {
     const uint16_t c = lvl <= 20 ? kRed : (lvl <= 50 ? kYellow : kGreen);
     M5.Display.fillRect(bx + 1, by + 1, inner, bh - 2, c);
   }
-  if (charging) boltLocked(bx + bw / 2, by, bh);
 
   // Палочки сигнала левее батареи.
   const int level = (rssiPercent() * 4 + 99) / 100;
