@@ -36,13 +36,14 @@ rmdir "$BUILD" 2>/dev/null || true
 # у которого заголовки тянут за собой меньше, чем у libc++ на Mac: так
 # ловится забытый #include (например, strlen без <cstring>), который
 # локально проходит, а на CI валит сборку.
-if [ -z "${CXX:-}" ] && command -v g++ >/dev/null 2>&1; then
+SECOND_CXX="${SECOND_CXX:-g++}"
+if [ "$SECOND_CXX" != "$CXX" ] && command -v "$SECOND_CXX" >/dev/null 2>&1; then
   PORT_FAILED=0
   for src in "$ROOT"/test/test_*.cpp; do
     [ -e "$src" ] || continue
-    if ! g++ -std=c++17 -Wall -Wextra -fsyntax-only \
+    if ! "$SECOND_CXX" -std=c++17 -Wall -Wextra -fsyntax-only \
           -I"$ROOT/src/pure" -I"$ROOT/test" "$src"; then
-      echo "НЕ СОБИРАЕТСЯ g++: $(basename "$src")"
+      echo "НЕ СОБИРАЕТСЯ $SECOND_CXX: $(basename "$src")"
       PORT_FAILED=1
     fi
   done
