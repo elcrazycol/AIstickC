@@ -356,25 +356,28 @@ void pageIndicator(size_t page, size_t total) {
 void toolWait(const char* label, int usedLines) {
   Guard g;
 
-  // Вступление модели оставляем на месте, если для надписи и точек ещё
-  // есть куда встать (нужны две строки).
+  // Экран не очищаем целиком: вступление модели остаётся на месте, иначе
+  // получается мигание пустотой. Надпись и точки встают в две нижние
+  // строки, и только эти строки расчищаются — если вступление было
+  // длинным, его хвост уступает место.
   if (usedLines < 0) usedLines = 0;
-  if (usedLines > kBodyLines - 2) {
-    M5.Display.fillScreen(kBlack);
-    statusBarLocked();
-    usedLines = 0;
-  }
+  if (usedLines > kBodyLines - 2) usedLines = kBodyLines - 2;
   useFontLocked();
 
   const bool hasLabel = (label != nullptr && label[0] != 0);
-  const int row = usedLines;
+  const int row = hasLabel ? usedLines : 0;
+  const int lastRow = hasLabel ? row + 1 : row;
+
+  for (int r = row; r <= lastRow; ++r) {
+    M5.Display.fillRect(0, kFirstBase + r * kLineH - 3, kScreenW,
+                        kLineH + 2, kBlack);
+  }
   if (hasLabel) {
     M5.Display.setTextColor(kGray, kBlack);
     M5.Display.setCursor(kMargin, kFirstBase + row * kLineH);
     M5.Display.print(label);
   }
-  // Точки встают строкой ниже надписи, а без неё — сразу под текстом.
-  s_dotsRow = hasLabel ? row + 1 : row;
+  s_dotsRow = lastRow;
   s_dotsOn = true;
 }
 

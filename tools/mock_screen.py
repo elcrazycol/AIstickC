@@ -167,13 +167,15 @@ def screen_tool(font, label, preamble=None, pct=78, rssi=4):
         for i, line in enumerate(preamble[:BODY_LINES]):
             font.text(img, line, MARGIN, FIRST_BASE + i * font.yadv, WHITE)
             used = i + 1
-    if used > BODY_LINES - 2:
-        # Вступление заняло почти весь экран — его убираем.
-        img = Image.new("RGB", (W, H), BLACK)
-        status_bar(img, font, pct, rssi)
-        used = 0
-    font.text(img, label, MARGIN, FIRST_BASE + used * font.yadv, GRAY)
-    draw_dots(img, 0, row=used + 1)
+    # Надпись встаёт не ниже третьей строки: если вступление длинное, его
+    # хвост уступает место — строки под надпись расчищаются целиком, но
+    # экран не мигает пустотой, как было при полной очистке.
+    row = min(used, BODY_LINES - 2)
+    for r in (row, row + 1):
+        fill(img.load(), 0, FIRST_BASE + r * font.yadv - 3, W,
+             FIRST_BASE + r * font.yadv + font.yadv, BLACK)
+    font.text(img, label, MARGIN, FIRST_BASE + row * font.yadv, GRAY)
+    draw_dots(img, 0, row=row + 1)
     return img
 
 
