@@ -426,6 +426,13 @@ it goes to the plugin. Weather comes from `wttr.in` (no key), and the answer is
 assembled into Russian: the condition is translated with a dictionary, and the
 wind arrow, which the font lacks, is stripped.
 
+**Markdown in answers.** The model replies with markdown when the question
+invites it: ask for code and you get a ``` block, ask for a list and you get
+asterisks. They cannot be shown raw, so the answer is parsed: emphasis markers
+are stripped (`**bold**` → bold, `` `code` `` → code), headers lose their
+hashes, and **code lines are drawn separately** — a smaller font on a dark panel
+with a green stripe on the left, so code does not read as prose.
+
 **Tool note.** If a plugin leaves a note about what it did (`note(...)`), it
 becomes the first line above the model's answer:
 

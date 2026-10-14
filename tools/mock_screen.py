@@ -43,6 +43,9 @@ SEL_BG = (33, 36, 66)       # 0x2128 — подложка выбранной с�
 ORANGE = (255, 165, 0)      # TFT_ORANGE — метка «есть новее»
 PANEL_EDGE = (128, 132, 128)
 DIM_DARK = (33, 4, 4)       # 0x2104 (пустые палочки)
+CODE_BG = (16, 20, 16)      # 0x10A2 — подложка блока кода
+CODE_EDGE = (45, 48, 45)    # 0x2E68 — полоска слева
+CODE_TEXT = (156, 234, 156) # 0x9F51 — мягкий зелёный
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -272,6 +275,7 @@ def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE,
     img = Image.new("RGB", (W, H), BLACK)
     status_bar(img, font, pct, rssi)
     small = None
+    px = img.load()
     for row in range(BODY_LINES):
         idx = page * BODY_LINES + row
         if note and idx == 0:
@@ -282,7 +286,17 @@ def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE,
         i = idx - (1 if note else 0)
         if i < 0 or i >= len(lines):
             continue
-        font.text(img, lines[i], MARGIN, FIRST_BASE + row * font.yadv, color)
+        item = lines[i]
+        text, is_code = (item, False) if isinstance(item, str) else item
+        y = FIRST_BASE + row * font.yadv
+        if is_code:
+            if small is None:
+                small = Font(os.path.join(ROOT, "include", "font_small.h"))
+            fill(px, 0, y - 1, W, y + font.yadv, CODE_BG)
+            fill(px, 0, y - 1, 3, y + font.yadv, CODE_EDGE)
+            small.text(img, text, MARGIN + 6, y + 2, CODE_TEXT)
+        else:
+            font.text(img, text, MARGIN, y, color)
 
     # Счётчик «x/y» в верхнем левом углу полосы состояния.
     ind = f"{page + 1}/{total}"
@@ -429,6 +443,13 @@ def main():
     # Пометка инструмента идёт первой строкой над ответом (как в прошивке).
     save(screen_answer(font, lines, 0, 2,
                        note="поиск: 5 источников, читал 3"), "screen-answer.png")
+    save(screen_answer(font, [
+        "Вот пример на Go:",
+        ("func main() {", True),
+        ('    fmt.Println("привет")', True),
+        ("}", True),
+        "Горутина запускается словом go.",
+    ], 0, 1), "screen-code.png")
     save(screen_notice(font, "История разговора очищена"), "screen-notice.png")
     save(screen_plugins(font, [("switch", "installed"), ("weather", "update"),
                                ("lamp", None), ("show_text", "installed")], 1),

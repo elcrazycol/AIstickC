@@ -30,6 +30,7 @@
 #include "timeouts.h"
 #include "chat_settings.h"
 #include "hold.h"
+#include "pure/markdown.h"
 #include "pure/sentence_trim.h"
 #include "webfetch.h"
 #include "pure/ulaw.h"
@@ -62,7 +63,7 @@ enum class State {
 };
 State g_state = State::Idle;
 
-std::vector<std::string> g_lines;
+std::vector<ui::Line> g_lines;
 size_t g_page = 0;
 int    g_color = kWhite;
 
@@ -208,8 +209,31 @@ void pollIdlePower() {
 // Ширина любого символа в моноширинном шрифте — константа.
 int measureMono(const char*, size_t, void*) { return kFont_jbmono_XAdvance; }
 
-void wrapInto(const char* text, std::vector<std::string>& out) {
-  textwrap::wrap(text, kBodyW, measureMono, nullptr, out);
+void wrapInto(const char* text, std::vector<ui::Line>& out) {
+  out.clear();
+  std::vector<std::string> wrapped;
+  textwrap::wrap(text, kBodyW, measureMono, nullptr, wrapped);
+  for (const std::string& s : wrapped) out.push_back({s, false});
+}
+
+// Разбор ответа: markdown превращается в строки, строки кода помечаются.
+// Переносим каждую строку отдельно — так пометка «код» переезжает на все
+// куски, и код остаётся кодом даже если не влез в ширину экрана.
+void wrapMarkdown(const char* text, std::vector<ui::Line>& out) {
+  std::vector<md::Line> src;
+  md::parse(text, src);
+
+  out.clear();
+  std::vector<std::string> wrapped;
+  for (const md::Line& l : src) {
+    if (l.text.empty()) {
+      out.push_back({"", l.code});
+      continue;
+    }
+    wrapped.clear();
+    textwrap::wrap(l.text.c_str(), kBodyW, measureMono, nullptr, wrapped);
+    for (const std::string& w : wrapped) out.push_back({w, l.code});
+  }
 }
 
 // Разметка ответа: если инструмент оставил пометку о том, что сделал, она
@@ -217,11 +241,12 @@ void wrapInto(const char* text, std::vector<std::string>& out) {
 // только на экране.
 void wrapAnswer(const char* text) {
   if (g_note.isEmpty()) {
-    wrapInto(text, g_lines);
+    wrapMarkdown(text, g_lines);
     return;
   }
+  // Пометка инструмента идёт первой строкой и разметке не подчиняется.
   const String all = g_note + "\n" + text;
-  wrapInto(all.c_str(), g_lines);
+  wrapMarkdown(all.c_str(), g_lines);
 }
 
 void pushWave(uint8_t amp) {

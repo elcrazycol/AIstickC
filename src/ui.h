@@ -53,18 +53,27 @@ void answerReset();
 void dotsStart();
 void dotsStop();
 
+// Строка ответа. code — строка из блока кода: её рисуем мелким шрифтом на
+// тёмной подложке с зелёной полоской слева, чтобы отличалась от текста.
+struct Line {
+  std::string text;
+  bool code = false;
+
+  Line() = default;
+  Line(const std::string& t, bool c = false) : text(t), code(c) {}
+};
+
 // Текст ответа: окно из kBodyLines строк, начиная с from. Рисуется с заливкой
 // фона, поэтому обновляется без мерцания и без полной очистки экрана.
-void answerText(const std::vector<std::string>& lines, size_t from, int color);
+void answerText(const std::vector<Line>& lines, size_t from, int color);
 
 // Строки [from, to) страницы, верхняя строка которой — pageFirst. Нужно во
 // время стрима: там меняется только последняя строка, и перерисовывать всю
 // страницу двадцать раз в секунду незачем.
 // noteLine — индекс строки-пометки инструмента (мелким серым шрифтом);
 // (size_t)-1, если пометки нет.
-void answerLines(const std::vector<std::string>& lines, size_t pageFirst,
-                 size_t from, size_t to, int color,
-                 size_t noteLine = (size_t)-1);
+void answerLines(const std::vector<Line>& lines, size_t pageFirst, size_t from,
+                 size_t to, int color, size_t noteLine = (size_t)-1);
 
 // Индикатор страниц внизу справа.
 // Счётчик страниц «x/y» в верхнем левом углу. Показывается всегда, в том

@@ -21,6 +21,11 @@ constexpr int kYellow = lgfx::colors::TFT_YELLOW;
 constexpr int kWhite  = lgfx::colors::TFT_WHITE;
 constexpr int kGray   = 0x8410;  // нейтрально-серый RGB565
 constexpr int kOrange = lgfx::colors::TFT_ORANGE;
+// Блок кода: тёмная подложка, зелёная полоска слева и мягкий зелёный текст —
+// так код отличается от обычного текста, не споря с палитрой.
+constexpr int kCodeBg   = 0x10A2;  // очень тёмный зелёный
+constexpr int kCodeEdge = 0x2E68;  // полоска слева
+constexpr int kCodeText = 0x9F51;  // светлый зелёный
 
 constexpr int kLineH     = kFont_jbmono_YAdvance;
 constexpr int kFirstBase = 26;  // верх первой строки тела
@@ -310,8 +315,8 @@ void dotsStop() {
 #endif
 }
 
-void answerLines(const std::vector<std::string>& lines, size_t pageFirst,
-                 size_t from, size_t to, int color, size_t noteLine) {
+void answerLines(const std::vector<Line>& lines, size_t pageFirst, size_t from,
+                 size_t to, int color, size_t noteLine) {
   Guard g;
   useFontLocked();
 
@@ -323,24 +328,32 @@ void answerLines(const std::vector<std::string>& lines, size_t pageFirst,
                      i < pageFirst + kBodyLines; ++i) {
     const int y = kFirstBase + (int)(i - pageFirst) * kLineH;
     const bool note = (i == noteLine);
+    const bool code = lines[i].code;
     // Пометка инструмента — подпись, а не текст: мелким шрифтом и серым,
     // как надпись «ищу в интернете», чтобы её не путали с ответом.
+    // Строки кода — мелким шрифтом на тёмной подложке с полоской слева.
     if (note) {
       M5.Display.setFont(&kFont_small);
       M5.Display.setTextColor(kGray, kBlack);
       M5.Display.setCursor(kMargin, y + 2);
+    } else if (code) {
+      M5.Display.fillRect(0, y - 1, kScreenW, kLineH - 2, kCodeBg);
+      M5.Display.fillRect(0, y - 1, 3, kLineH - 2, kCodeEdge);
+      M5.Display.setFont(&kFont_small);
+      M5.Display.setTextColor(kCodeText, kCodeBg);
+      M5.Display.setCursor(kMargin + 6, y + 2);
     } else {
       M5.Display.setFont(&kFont_jbmono);
       M5.Display.setTextColor(color, kBlack);
       M5.Display.setCursor(kMargin, y);
     }
-    M5.Display.print(lines[i].c_str());
+    M5.Display.print(lines[i].text.c_str());
   }
   useFontLocked();  // вернуть основной шрифт
   M5.Display.endWrite();
 }
 
-void answerText(const std::vector<std::string>& lines, size_t from, int color) {
+void answerText(const std::vector<Line>& lines, size_t from, int color) {
   answerLines(lines, from, from, from + kBodyLines, color);
 }
 
