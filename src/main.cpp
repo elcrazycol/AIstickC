@@ -149,6 +149,19 @@ void pollIdlePower() {
     WiFi.mode(WIFI_OFF);
   }
 
+  // Лёгкий сон: экран погашен и Wi-Fi выключен — значит делать нечего, и
+  // можно усыпить процессор по-настоящему. Просыпается раз в 200 мс по
+  // таймеру, проверяет датчик и кнопки, и засыпает снова. Память при этом
+  // сохраняется: диалог не теряется, в отличие от глубокого сна.
+  //
+  // Потребление падает в десятки раз (единицы миллиампер против десятков),
+  // а движение по-прежнему будит экран — просто с задержкой до 200 мс.
+  if (g_screenOff && g_wifiOff) {
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_37, 0);  // большая кнопка
+    esp_sleep_enable_timer_wakeup(kLightSleepUs);
+    esp_light_sleep_start();
+  }
+
   const uint32_t sleepAfter = powercfg::sleepMs();
   if (sleepAfter != 0 && idle >= sleepAfter) {
     Serial.println("[main] простой: глубокий сон");

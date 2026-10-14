@@ -471,6 +471,12 @@ Idle power is saved in steps (thresholds in `include/settings.h`):
 | 90 s | Wi-Fi off (the next question brings it back) |
 | as configured | deep sleep; the big button wakes it |
 
+**When idle, the CPU really sleeps.** Once the screen is off and Wi-Fi is down,
+the stick enters light sleep: the CPU wakes every 200 ms, checks the motion
+sensor and the buttons, and sleeps again. Power drops tens of times (single
+milliamps against tens), and **the dialogue memory survives** — unlike deep
+sleep. Movement still wakes the screen, just with up to a 200 ms delay.
+
 **Movement wakes the screen.** The accelerometer watches acceleration: at rest
 it is exactly 1 g, and lifting the stick pushes it aside. Pick the stick up and
 the screen lights up, no button needed. Shaking does not open the menu while the
@@ -479,6 +485,10 @@ screen is off: picking it up is not a request for settings.
 **How long to wait before deep sleep is your choice** (settings menu): `2 min`,
 `10 min`, `30 min`, `1 hour` or `never`. The power difference is enormous — deep
 sleep draws microamps against tens of milliamps when idle, a thousandfold.
+
+With light sleep in place, deep sleep is only needed for long absences: when
+idle the stick barely draws anything anyway. So `never` is now a sensible
+choice — memory always survives and consumption stays low.
 
 There is a trade-off worth knowing: **deep sleep loses memory** — the dialogue
 is wiped. Settings and the message counter survive, they live in NVS on flash.
