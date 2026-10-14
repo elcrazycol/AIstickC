@@ -61,7 +61,10 @@ constexpr uint32_t kSerialBaud      = 115200;
 // к своему прокси, а тот — в Groq Whisper. Тело запроса — сырой PCM
 // (16 бит, little-endian, моно, 16 кГц), multipart собирает сервер.
 // Хост, порт, путь и токен — в config.h: они зависят от развёртывания.
-constexpr const char* kSttContentType = "application/octet-stream";
+// Звук уходит в µ-law (8 бит вместо 16): вдвое меньше байт при том же
+// качестве для речи. "audio/basic" — стандартное имя этого формата, по нему
+// прокси понимает, что тело надо развернуть обратно в 16-битный PCM.
+constexpr const char* kSttContentTypeUlaw = "audio/basic";
 // Минимум, который принимает прокси: 50 мс.
 constexpr size_t      kSttMinBytes    = 1600;
 

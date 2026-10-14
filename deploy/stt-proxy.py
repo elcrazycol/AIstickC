@@ -86,6 +86,34 @@ _tuya_token = None
 _tuya_token_until = 0.0
 
 
+def _ulaw_table():
+    """Таблица разворота µ-law в 16-битные отсчёты (G.711).
+
+    audioop из стандартной библиотеки в новых Python удалён, а таблица
+    считается один раз при старте и работает без зависимостей.
+    """
+    table = []
+    for code in range(256):
+        u = ~code & 0xFF
+        t = ((u & 0x0F) << 3) + 0x84
+        t <<= (u & 0x70) >> 4
+        table.append((0x84 - t) if (u & 0x80) else (t - 0x84))
+    return table
+
+
+_ULAW = _ulaw_table()
+
+
+def ulaw_to_pcm(data):
+    """8-битный µ-law -> 16-битный PCM, моно, little-endian."""
+    out = bytearray(len(data) * 2)
+    for i, code in enumerate(data):
+        v = _ULAW[code]
+        out[i * 2] = v & 0xFF
+        out[i * 2 + 1] = (v >> 8) & 0xFF
+    return bytes(out)
+
+
 def wav_header(data_len, sample_rate=SAMPLE_RATE):
     """WAV-заголовок (44 байта) для сырого PCM: моно, 16 бит."""
     import struct
@@ -325,6 +353,12 @@ class Handler(BaseHTTPRequestHandler):
         pcm = self.rfile.read(length)
         if len(pcm) != length:
             return self._json(400, {"error": "short read"})
+
+        # Стик шлёт звук в µ-law (8 бит вместо 16) — разворачиваем в PCM,
+        # дальше всё как раньше. Проверка длины идёт уже по развёрнутому.
+        if self.headers.get("Content-Type", "").startswith("audio/basic"):
+            pcm = ulaw_to_pcm(pcm)
+
         if len(pcm) < MIN_BYTES:
             return self._json(400, {"error": "audio too short"})
 

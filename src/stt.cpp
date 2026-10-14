@@ -9,6 +9,8 @@
 
 #include "stt.h"
 
+#include "pure/ulaw.h"
+
 #include <WiFiClientSecure.h>
 #include <cstring>
 
@@ -19,6 +21,12 @@
 #include "pure/json_extract.h"
 
 namespace stt {
+
+namespace {
+// Сжатый звук: µ-law вдвое короче исходного PCM. Буфер в PSRAM и живёт
+// между вопросами — перевыделять его каждый раз незачем.
+uint8_t* g_ulaw = nullptr;
+}  // namespace
 
 Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
   Result r;
@@ -49,6 +57,20 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
   }
   c.setTimeout(kHttpReadMs);
 
+  // Сжимаем в µ-law: 8 бит вместо 16. Для речи это штатный формат
+  // телефонии — качество почти то же, а байт вдвое меньше, значит и
+  // отправка вдвое быстрее.
+  const size_t samples = pcmLen / 2;
+  if (g_ulaw == nullptr) {
+    g_ulaw = (uint8_t*)ps_malloc(kAudioBytes / 2);
+    if (g_ulaw == nullptr) {
+      r.error = "нет памяти под сжатие звука";
+      return r;
+    }
+  }
+  ulaw::encodeBuffer(pcm, samples, g_ulaw);
+  const size_t bodyLen = samples;
+
   char head[512];
   snprintf(head, sizeof(head),
            "POST %s HTTP/1.1\r\n"
@@ -59,7 +81,7 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
            "Connection: keep-alive\r\n"
            "\r\n",
            PROXY_PATH, PROXY_HOST, PROXY_PORT, PROXY_TOKEN,
-           kSttContentType, (unsigned)pcmLen);
+           kSttContentTypeUlaw, (unsigned)bodyLen);
 
   if (!net::writeAll(c, (const uint8_t*)head, strlen(head), t0)) {
     r.error = "не отправить заголовки";
@@ -67,20 +89,21 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
     return r;
   }
 
-  Serial.printf("[stt] отправляю %u байт PCM\n", (unsigned)pcmLen);
+  Serial.printf("[stt] отправляю %u байт µ-law (было %u PCM)\n",
+                (unsigned)bodyLen, (unsigned)pcmLen);
   // Замер только тела: t0 включает TLS-рукопожатие, а оно на ESP32
   // занимает секунды, и портит оценку скорости.
   const uint32_t bodyStart = millis();
-  if (!net::writeAll(c, pcm, pcmLen, t0, hooks.onUpload, hooks.ctx)) {
+  if (!net::writeAll(c, g_ulaw, bodyLen, t0, hooks.onUpload, hooks.ctx)) {
     r.error = "обрыв отправки";
     c.stop();
     return r;
   }
   const uint32_t sentMs = millis() - bodyStart;
-  const uint32_t kbps = sentMs ? (uint32_t)((uint64_t)pcmLen * 1000 /
+  const uint32_t kbps = sentMs ? (uint32_t)((uint64_t)bodyLen * 1000 /
                                             sentMs / 1024) : 0;
   Serial.printf("[stt] тело %u байт за %u мс (%u КБ/с), всего с TLS %u мс\n",
-                (unsigned)pcmLen, sentMs, kbps, millis() - t0);
+                (unsigned)bodyLen, sentMs, kbps, millis() - t0);
 
   const String raw = net::readAll(c, t0, kMaxSttResponse, hooks.onTick, hooks.ctx);
   // Соединение не закрываем — пригодится следующему вопросу.

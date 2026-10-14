@@ -189,7 +189,18 @@ void dotsTask(void*) {
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(33));  // ~30 кадров в секунду
     Guard g;
+#ifdef AISTICK_DOTS_TEST
+    static uint32_t frames = 0;
+    if (s_dotsOn) {
+      if ((++frames % 10) == 0) {
+        Serial.printf("[dots] кадр %u, идёт=%d\n", (unsigned)frames,
+                      (int)s_dotsOn);
+      }
+      dotsFrameLocked(millis());
+    }
+#else
     if (s_dotsOn) dotsFrameLocked(millis());
+#endif
   }
 }
 
@@ -280,14 +291,21 @@ void answerReset() {
 void dotsStart() {
   Guard g;
   s_dotsOn = true;
+#ifdef AISTICK_DOTS_TEST
+  Serial.println("[dots] старт");
+#endif
 }
 
 void dotsStop() {
   Guard g;
   s_dotsOn = false;
+#ifdef AISTICK_DOTS_TEST
+  Serial.println("[dots] стоп");
+#endif
 }
 
-void answerText(const std::vector<std::string>& lines, size_t from, int color) {
+void answerLines(const std::vector<std::string>& lines, size_t pageFirst,
+                 size_t from, size_t to, int color) {
   Guard g;
   useFontLocked();
 
@@ -296,13 +314,17 @@ void answerText(const std::vector<std::string>& lines, size_t from, int color) {
   // «хвостов» от прошлого кадра не остаётся.
   M5.Display.setTextColor(color, kBlack);
   M5.Display.startWrite();
-  int y = kFirstBase;
-  for (size_t i = from; i < lines.size() && i < from + kBodyLines; ++i) {
+  for (size_t i = from; i < to && i < lines.size() &&
+                     i < pageFirst + kBodyLines; ++i) {
+    const int y = kFirstBase + (int)(i - pageFirst) * kLineH;
     M5.Display.setCursor(kMargin, y);
     M5.Display.print(lines[i].c_str());
-    y += kLineH;
   }
   M5.Display.endWrite();
+}
+
+void answerText(const std::vector<std::string>& lines, size_t from, int color) {
+  answerLines(lines, from, from, from + kBodyLines, color);
 }
 
 void pageIndicator(size_t page, size_t total) {

@@ -200,9 +200,11 @@ button simply goes back, so memory cannot be wiped by accident while reading.
 
 ## How it works
 
-**Recognition.** The stick sends raw LPCM (16-bit, LE, mono, 16 kHz) to its own
-proxy. The proxy builds a WAV and a multipart request and calls
-`whisper-large-v3-turbo`. The firmware stays simple: no WAV header, no multipart
+**Recognition.** The stick sends audio as **µ-law** (8-bit instead of 16, mono,
+16 kHz) to its own proxy, which expands it back to LPCM, builds a WAV and a
+multipart request and calls `whisper-large-v3-turbo`. For speech µ-law is the
+standard telephone format: nearly the same quality, half the bytes, so the
+upload is twice as fast. The firmware stays simple: no WAV header, no multipart
 on the device.
 
 **Speed.** The most expensive part of a reply is not the model but the TLS
@@ -221,7 +223,9 @@ incrementally, so memory does not grow with stream length.
 `messages` array. Trimming is by exchange count and character budget so the
 request stays small. A sent-message counter lives in NVS and survives power-off.
 
-**Display.** A custom monospace font (ASCII + Cyrillic + typography: dashes,
+**Display.** While streaming, only the growing line is redrawn: otherwise the
+whole page would go out every 50 ms and the output would visibly stutter.
+A custom monospace font (ASCII + Cyrillic + typography: dashes,
 quotes, ellipsis). Text is wrapped by words and paginated. The `x/y` counter
 lives in the status bar, to the left of the battery and Wi-Fi, so it takes no
 text line. While an answer is being written the screen does not flip by itself:

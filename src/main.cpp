@@ -77,9 +77,10 @@ uint32_t g_lastDraw = 0;     // троттлинг перерисовок тек
 String   g_stream;           // накопленный текст ответа
 // Листание. Экран сам не перелистывается: пока ответ пишется, страница
 // остаётся там, где её оставил пользователь, а растёт только число страниц.
-size_t   g_drawnPage = 0;   // что сейчас на экране
-size_t   g_drawnTotal = 0;  // с каким счётчиком
-bool     g_textStarted = false;  // текст ответа уже пошёл (точки погасли)
+constexpr size_t kNoPage = (size_t)-1;  // на экране ещё нет текста
+size_t   g_drawnPage = kNoPage;  // что сейчас на экране
+size_t   g_drawnTotal = 0;       // с каким счётчиком страниц
+size_t   g_drawnTo = 0;          // до какой строки страница отрисована
 
 // Удержание боковой кнопки: отсчёт и полоска — в модуле hold.
 hold::Watcher g_holdReset(M5.BtnB, kClearHoldMs);   // сброс истории
@@ -189,6 +190,7 @@ void drawAnswer(size_t page) {
   g_page = page;
   g_drawnPage = page;
   g_drawnTotal = textwrap::pageCount(g_lines.size(), ui::kBodyLines);
+  g_drawnTo = (page + 1) * ui::kBodyLines;
   ui::dotsStop();
   ui::answerReset();
   ui::answerText(g_lines, page * ui::kBodyLines, g_color);
@@ -250,8 +252,9 @@ void showIdle() {
 
 // Начало фазы ожидания: чистый экран и запущенная анимация точек.
 void startWaiting() {
-  g_drawnPage = (size_t)-1;  // на экране ещё не текст: первый кадр всё сотрёт
+  g_drawnPage = kNoPage;  // на экране ещё не текст: первый кадр всё сотрёт
   g_drawnTotal = 0;
+  g_drawnTo = 0;
   g_lastDraw = 0;
   ui::answerReset();
   ui::dotsStart();
@@ -272,22 +275,30 @@ void onDelta(const char* piece, size_t len, size_t, void*) {
 
   if (g_page >= total) g_page = total - 1;  // страховка на всякий случай
 
-  if (!g_textStarted) {
-    g_textStarted = true;
+  // Экран не перелистываем: пользователь остаётся на своей странице.
+  // Растёт только последняя строка последней страницы, поэтому и рисуем
+  // только её (и те строки, что появились с прошлого кадра) — иначе на
+  // каждые 50 мс уходила бы вся страница, и вывод заметно тормозил.
+  const size_t first = g_page * ui::kBodyLines;
+  const size_t last = min(g_lines.size(), first + ui::kBodyLines);
+
+  if (g_drawnPage == kNoPage) {
     ui::dotsStop();
     ui::answerReset();  // стереть точки перед первым текстом
-    ui::answerText(g_lines, g_page * ui::kBodyLines, kWhite);
-    ui::pageIndicator(g_page, total);
     g_drawnPage = g_page;
     g_drawnTotal = total;
+    g_drawnTo = first;
+    ui::answerLines(g_lines, first, first, last, kWhite);
+    ui::pageIndicator(g_page, total);
+    g_drawnTo = last;
     return;
   }
 
-  // Экран не перелистываем: пользователь остаётся на своей странице.
-  // Растут только строки последней страницы (её и дорисовываем) и число
-  // страниц в счётчике. Готовые страницы не трогаем — они не меняются.
-  if (g_page == total - 1) {
-    ui::answerText(g_lines, g_page * ui::kBodyLines, kWhite);
+  if (g_page == total - 1 && last > first) {
+    size_t start = (g_drawnTo > first) ? g_drawnTo - 1 : first;
+    if (start >= last) start = last - 1;
+    ui::answerLines(g_lines, first, start, last, kWhite);
+    g_drawnTo = last;
   }
   if (total != g_drawnTotal) {
     g_drawnTotal = total;

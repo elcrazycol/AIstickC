@@ -57,6 +57,12 @@ void dotsStop();
 // фона, поэтому обновляется без мерцания и без полной очистки экрана.
 void answerText(const std::vector<std::string>& lines, size_t from, int color);
 
+// Строки [from, to) страницы, верхняя строка которой — pageFirst. Нужно во
+// время стрима: там меняется только последняя строка, и перерисовывать всю
+// страницу двадцать раз в секунду незачем.
+void answerLines(const std::vector<std::string>& lines, size_t pageFirst,
+                 size_t from, size_t to, int color);
+
 // Индикатор страниц внизу справа.
 // Счётчик страниц «x/y» в верхнем левом углу. Показывается всегда, в том
 // числе во время стрима, когда y ещё растёт.
