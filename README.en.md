@@ -456,6 +456,41 @@ screen by itself after a couple of seconds. The exchange is deliberately **not**
 stored in the dialogue memory: otherwise the model starts copying the note as
 text instead of calling the tool.
 
+## Web panel
+
+The stick's answers live on a 240×135 screen and then vanish: paging through
+them with a button is awkward and there is no way to copy them. So the stick
+serves its own page.
+
+Menu → **Web panel** shows a QR code, the IP and a four-digit code. Point your
+phone at it and a chat opens: your question on the right, the answer on the
+left, a copy button on every answer. The page refreshes by itself — ask by
+voice and the answer lands there too.
+
+![Panel screen](docs/images/screen-panel.png)
+
+![Panel page](docs/images/panel-web.png)
+
+**The access code travels in the link** rather than in a separate field: typing
+it on a phone is one more step, while in the address it is simply there. Anyone
+who cannot see the stick's screen does not get in.
+
+**While the panel is being used, the stick stays awake.** Every request from the
+page extends the idle timer — otherwise the panel would die twenty seconds after
+being opened. When the screen goes off (nobody is looking), the server shuts
+down and the memory is released, and the page says so plainly. A background tab
+does not poll the stick: a forgotten tab would otherwise keep it awake and drain
+the battery.
+
+**The cost is 8 KB of memory** (free heap 188 916 → 180 948 bytes, largest block
+unchanged) and not a single TLS session: the panel is plain HTTP, so asking a
+question by voice while the panel is open works as usual. The server runs in its
+own task rather than the main loop — otherwise the panel would freeze for the
+seconds the model is answering, exactly when someone is looking at it.
+
+For now the panel only reads. Sending a question as text, changing settings and
+running plugins from the page are planned, see #6.
+
 ## Tests
 
 ```bash

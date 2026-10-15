@@ -30,6 +30,8 @@
 #include "timeouts.h"
 #include "chat_settings.h"
 #include "hold.h"
+#include "panel.h"
+#include "pure/json_write.h"
 #include "pure/markdown.h"
 #include "pure/motion_wake.h"
 #include "pure/sentence_trim.h"
@@ -61,6 +63,7 @@ enum class State {
   Showing,
   Menu,       // меню настроек (открывается тряской) и его подменю
   Plugins,    // панель плагинов
+  Panel,      // экран веб-панели: QR и код доступа
 };
 State g_state = State::Idle;
 
@@ -164,7 +167,8 @@ void showIdle();
 
 void pollIdlePower() {
   const bool inMenu = (g_state == State::Menu ||
-                       g_state == State::Plugins);
+                       g_state == State::Plugins ||
+                       g_state == State::Panel);
   if (g_state != State::Idle && g_state != State::Showing && !inMenu) return;
   const uint32_t idle = millis() - g_lastActivity;
   const uint32_t screenAfter = cfg::screenMs();
@@ -182,6 +186,9 @@ void pollIdlePower() {
     g_screenOff = true;
     ui::dotsStop();
     ui::screenOff();
+    // Экран погас — по панели больше не ходят (иначе запросы продлили бы
+    // простой), значит сервер не нужен, а память нужна.
+    if (panel::active()) panel::end();
     Serial.println("[main] простой: экран погашен");
   }
 
@@ -380,6 +387,20 @@ void showPluginResult(const plugins::Result& pr) {
   snprintf(panel, sizeof(panel), "%s: %s", pr.plugin.c_str(), pr.text.c_str());
   ui::notice(panel);
   g_panelUntil = millis() + kPluginPanelMs;
+}
+
+// Снимок истории для веб-панели. Панель отдаёт его как есть, поэтому JSON
+// собираем здесь и только когда история меняется.
+void updatePanelHistory() {
+  if (!panel::active()) return;
+  std::string out = "[";
+  const std::vector<chat::Msg>& msgs = g_history.messages();
+  for (size_t i = 0; i < msgs.size(); ++i) {
+    if (i) out += ",";
+    jsonw::message(msgs[i].fromUser, msgs[i].text, out);
+  }
+  out += "]";
+  panel::setHistory(out.c_str());
 }
 
 void showIdle() {
@@ -710,6 +731,7 @@ void runQuestion() {
         g_history.addUser(s.text.c_str());
         g_history.addAssistant(c.text.c_str());
         trimHistory();
+        updatePanelHistory();
         g_color = kWhite;
         g_page = 0;
         wrapAnswer(c.text.c_str());
@@ -729,6 +751,7 @@ void runQuestion() {
     g_history.addUser(s.text.c_str());
     g_history.addAssistant(a.text.c_str());
     trimHistory();
+    updatePanelHistory();
     Serial.printf("[main] в памяти %u обменов\n",
                   (unsigned)g_history.turnCount());
 
@@ -813,6 +836,31 @@ void drawPlugins() {
   ui::list("Плагины", g_pluginRows, g_pluginIndex);
 }
 
+// Веб-панель: поднять сервер и показать QR с адресом и кодом.
+void showPanel() {
+  g_holdExit.clear();
+  markActivity();
+  if (!ensureWifi()) {
+    ui::notice("нет сети — панель не поднять");
+    delay(1500);
+    showIdle();
+    return;
+  }
+  if (!panel::begin()) {
+    ui::notice("панель не поднялась");
+    delay(1500);
+    showIdle();
+    return;
+  }
+
+  g_state = State::Panel;
+  updatePanelHistory();  // панель должна показать то, что уже наговорено
+  const std::string u = panel::url();
+  const String ip = WiFi.localIP().toString();
+  ui::qr(u.c_str(), ip.c_str(), panel::code());
+  Serial.printf("[main] панель: %s\n", u.c_str());
+}
+
 // Собирает список: доступные из репозитория + установленные, которых там нет.
 void buildPluginRows() {
   g_pluginRows.clear();
@@ -892,7 +940,7 @@ void enterPlugins() {
 
 // Пункты меню настроек. Порядок должен совпадать с menuRows().
 // Пункты главного меню. Порядок должен совпадать с menuRows().
-enum class SettingRow { Plugins = 0, Dialog, Power, Buttons, Reset };
+enum class SettingRow { Plugins = 0, Web, Dialog, Power, Buttons, Reset };
 
 enum class DialogRow { Length = 0, Turns, Tokens };
 
@@ -940,6 +988,7 @@ std::vector<ui::ListItem> menuRows(Menu m) {
 
     default:
       rows.push_back(ui::ListItem("Плагины"));
+      rows.push_back(ui::ListItem("Веб-панель"));
       rows.push_back(ui::ListItem("Диалог и ответ"));
       rows.push_back(ui::ListItem("Питание"));
       rows.push_back(ui::ListItem("Кнопки"));
@@ -966,6 +1015,20 @@ void openMenu(Menu m) {
 void applyHoldTimes() {
   g_holdExit.setThreshold(cfg::backMs());
   g_holdReset.setThreshold(cfg::resetMs());
+}
+
+void pollPanel() {
+  // Кнопки как в меню: боковая удержанием — назад, большая — тоже назад.
+  switch (g_holdExit.poll()) {
+    case hold::Event::Fired:
+      showIdle();
+      return;
+    case hold::Event::Tap:
+      return;
+    default:
+      break;
+  }
+  if (M5.BtnA.wasClicked()) showIdle();
 }
 
 // BtnA: войти в пункт или переключить значение. Списки короткие, поэтому
@@ -995,6 +1058,7 @@ void activateMenu(size_t row) {
   } else {
     switch (static_cast<SettingRow>(row)) {
       case SettingRow::Plugins: enterPlugins(); return;
+      case SettingRow::Web: showPanel(); return;
       case SettingRow::Dialog: openMenu(Menu::Dialog); return;
       case SettingRow::Power: openMenu(Menu::Power); return;
       case SettingRow::Buttons: openMenu(Menu::Buttons); return;
@@ -1177,6 +1241,9 @@ void loop() {
     markActivity();
   }
 
+  // Запросы к панели — это активность: пока по ней ходят, стик не спит.
+  if (panel::touched()) markActivity();
+
   // Меню и панель — отдельные режимы: кнопки в них значат другое.
   // Простой проверяем и здесь: иначе меню висело бы с горящим экраном вечно.
   if (g_state == State::Menu) {
@@ -1187,6 +1254,17 @@ void loop() {
   }
   if (g_state == State::Plugins) {
     pollPlugins();
+    pollIdlePower();
+    delay(20);
+    return;
+  }
+  if (g_state == State::Panel) {
+    pollPanel();
+    // С экрана панели тоже можно спросить: ответ придёт и на страницу.
+    if (g_holdRecord.poll() == hold::Event::Fired) {
+      runQuestion();
+      markActivity();
+    }
     pollIdlePower();
     delay(20);
     return;

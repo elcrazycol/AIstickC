@@ -35,6 +35,9 @@ void begin();
 // Полоса состояния: Wi-Fi слева, имя модели справа.
 void statusBar();
 
+// Экран веб-панели: QR с адресом, IP, код доступа и подсказка.
+void qr(const char* url, const char* ip, const char* code);
+
 // Заглавный экран: картинка справа, слева подпись и счётчики.
 void idle(size_t memTurns, uint32_t msgs);
 

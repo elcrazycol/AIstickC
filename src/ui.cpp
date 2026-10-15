@@ -139,6 +139,7 @@ void statusBarDrawLocked(bool clear) {
 
 void statusBarLocked() { statusBarDrawLocked(true); }
 
+
 // Волны громкости: вертикальные радужные столбики, свежие справа.
 // Чистит только свою полоску — это и есть быстрый путь анимации.
 void waveStripLocked(const uint8_t* wave, size_t n, uint32_t nowMs) {
@@ -206,6 +207,38 @@ void dotsTask(void*) {
 }
 
 }  // namespace
+
+// Экран веб-панели. QR рисует сама библиотека: белым с чёрными модулями и
+// тихой зоной — так его читает любой сканер, а на тёмной панели он бы не
+// считался. Справа остаётся место на подпись, IP и код доступа.
+void qr(const char* url, const char* ip, const char* code) {
+  Guard g;
+  M5.Display.fillScreen(kBlack);
+  statusBarLocked();
+  useFontLocked();
+
+  constexpr int qs = 112;  // сторона QR
+  constexpr int qx = 4;
+  constexpr int qy = 16;
+  M5.Display.qrcode(url, qx, qy, qs, 1, true);
+
+  const int tx = qx + qs + 8;
+  M5.Display.setTextColor(kGreen, kBlack);
+  M5.Display.setCursor(tx, 20);
+  M5.Display.print("Веб-панель");
+  M5.Display.setTextColor(kWhite, kBlack);
+  M5.Display.setCursor(tx, 42);
+  M5.Display.print(ip);
+  M5.Display.setTextColor(kYellow, kBlack);
+  M5.Display.setCursor(tx, 64);
+  M5.Display.print("код ");
+  M5.Display.print(code);
+  M5.Display.setTextColor(kGray, kBlack);
+  M5.Display.setCursor(tx, 86);
+  M5.Display.print("наведи");
+  M5.Display.setCursor(tx, 106);
+  M5.Display.print("камеру");
+}
 
 void begin() {
   useFontLocked();
