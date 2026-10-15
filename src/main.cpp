@@ -1006,7 +1006,6 @@ void activateMenu(size_t row) {
 }
 
 void pollMenu() {
-  markActivity();  // в меню экран не должен гаснуть по таймеру простоя
   const size_t n = g_menuCount;
 
   // BtnB отдан модулю удержания: тап — назад по списку, зажатие — на уровень
