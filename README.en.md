@@ -610,6 +610,8 @@ and update from repositories — no rebuild and no cable.
 
 **Not verified on hardware:** waking from deep sleep and maximum-length (15 s)
 recording — both were exercised only at smaller scales.
+Plus markdown parsing in answers, a web panel with the history on your
+phone, and sleep that honestly works from every screen.
 
 ## Credits
 
