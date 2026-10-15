@@ -75,9 +75,14 @@ Reply askOnce(const std::vector<chat::Msg>& history, const String& userText,
 // Повторяем только если не пришло вообще ничего: иначе ответ задвоится.
 Reply ask(const std::vector<chat::Msg>& history, const String& userText,
           const Stream& stream, const Options& opts) {
+  const uint32_t t0 = millis();
   Reply r = askOnce(history, userText, stream, opts);
-  if (!r.ok && r.httpCode == 0 && r.text.length() == 0) {
-    Serial.println("[llm] соединение не сложилось — пробую ещё раз");
+  // Повторяем только после быстрого сбоя: значит, соединение не сложилось.
+  // После долгого ожидания повтор его бы просто удвоил.
+  if (!r.ok && r.httpCode == 0 && r.text.length() == 0 &&
+      (millis() - t0) < kLlmRetryMinMs) {
+    Serial.printf("[llm] быстрый сбой (%u мс) — пробую ещё раз\n",
+                  (unsigned)(millis() - t0));
     net::llmClient().stop();
     delay(150);
     r = askOnce(history, userText, stream, opts);
@@ -254,7 +259,25 @@ Reply askOnce(const std::vector<chat::Msg>& history, const String& userText,
   };
 
   while (!done) {
-    if (millis() - t0 > kHttpReadMs) break;
+    const uint32_t now = millis();
+    // Своё время на каждый этап: раньше всё упиралось в общий потолок чтения
+    // в минуту, и на «крутилку» можно было смотреть очень долго.
+    if (now - t0 > kLlmTotalMs) {
+      Serial.printf("[llm] общий потолок: %u мс\n", (unsigned)(now - t0));
+      // Что успело прийти — покажем, но пометим обрезанным: иначе ответ
+      // оборвётся на полуслове и будет выглядеть как обычный.
+      if (content.empty()) {
+        r.error = "модель не ответила за 40 секунд";
+      } else {
+        r.truncated = true;
+      }
+      break;
+    }
+    if (!headerDone && now - t0 > kLlmFirstMs) {
+      r.error = "модель долго не отвечает";
+      Serial.printf("[llm] нет ответа за %u мс\n", (unsigned)(now - t0));
+      break;
+    }
 
     const int avail = c.available();
     if (avail > 0) {
@@ -270,7 +293,12 @@ Reply askOnce(const std::vector<chat::Msg>& history, const String& userText,
     }
 
     if (!c.connected() && c.available() == 0) break;
-    if (headerDone && (millis() - idleSince) > kIdleMs) break;
+    if (headerDone && (millis() - idleSince) > kIdleMs) {
+      // Модель замолчала посреди ответа: показываем, что успела, и помечаем
+      // обрезанным — хвост подрежет finishAnswer до целого предложения.
+      if (!content.empty()) r.truncated = true;
+      break;
+    }
     delay(5);
   }
   // Дочитываем хвост тела — терминальный chunk «0\r\n\r\n». Если его
@@ -291,11 +319,13 @@ Reply askOnce(const std::vector<chat::Msg>& history, const String& userText,
 
   // Соединение не закрываем: следующему вопросу оно сэкономит рукопожатие.
   // Ошибка чтения — единственный случай, когда рвём явно.
-  if (!headerDone) c.stop();
-
   if (!headerDone) {
-    r.error = String("не разобран статус: ") +
-              String(headBuf.substr(0, 40).c_str());
+    c.stop();
+    // Своя ошибка (срок вышел) важнее технической: она и показывается.
+    if (r.error.length() == 0) {
+      r.error = String("не разобран статус: ") +
+                String(headBuf.substr(0, 40).c_str());
+    }
     return r;
   }
   r.httpCode = httpCode;

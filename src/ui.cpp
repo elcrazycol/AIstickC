@@ -9,6 +9,7 @@
 #include "font_jbmono.h"
 #include "font_small.h"
 #include "idle_image.h"
+#include "pure/elapsed.h"
 #include "pure/text_wrap.h"
 
 namespace ui {
@@ -166,6 +167,10 @@ void waveStripLocked(const uint8_t* wave, size_t n, uint32_t nowMs) {
 }
 
 // Кадр анимации точек: три точки в начале первой строки, размером со строку.
+// Когда началось ожидание и какую секунду мы уже показали.
+uint32_t s_waitFrom = 0;
+uint32_t s_waitShown = 0;
+
 void dotsFrameLocked(uint32_t nowMs) {
   constexpr int r = 3;
   constexpr int gap = 8;
@@ -184,6 +189,23 @@ void dotsFrameLocked(uint32_t nowMs) {
     M5.Display.fillCircle(x0 + i * gap, cy + dy, r, hue565(hue));
   }
   M5.Display.endWrite();
+
+  // Счётчик ожидания. Точки не отвечают на главный вопрос — работает стик или
+  // завис, — а секунды отвечают. Показываем с третьей секунды: раньше это
+  // просто мельтешение. Перерисовываем раз в секунду, а не каждый кадр.
+  const uint32_t waited = nowMs - s_waitFrom;
+  if (waited < 3000) return;
+  const uint32_t sec = waited / 1000;
+  if (sec == s_waitShown) return;
+  s_waitShown = sec;
+
+  char buf[16];
+  elapsed::format(waited, buf, sizeof(buf));
+  M5.Display.setFont(&kFont_small);
+  M5.Display.setTextColor(kGray, kBlack);
+  M5.Display.fillRect(0, kScreenH - 18, 72, 18, kBlack);
+  M5.Display.setCursor(kMargin, kScreenH - 16);
+  M5.Display.print(buf);
 }
 
 // Задача анимации на втором ядре: не зависит от блокирующих сетевых вызовов.
@@ -341,6 +363,8 @@ void answerReset() {
 void dotsStart() {
   Guard g;
   s_dotsRow = 0;  // обычное ожидание — точки с первой строки
+  s_waitFrom = millis();
+  s_waitShown = 0;
   s_dotsOn = true;
 #ifdef AISTICK_DOTS_TEST
   Serial.println("[dots] старт");

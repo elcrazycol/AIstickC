@@ -236,7 +236,8 @@ Result transcribe(const uint8_t* pcm, size_t pcmLen, const Hooks& hooks) {
   Serial.printf("[stt] тело %u байт за %u мс (%u КБ/с), всего с TLS %u мс\n",
                 (unsigned)bodyLen, sentMs, kbps, millis() - t0);
 
-  const String raw = net::readAll(c, t0, kMaxSttResponse, hooks.onTick, hooks.ctx);
+  const String raw =
+      net::readAll(c, t0, kMaxSttResponse, hooks.onTick, hooks.ctx, kSttWaitMs);
   // Соединение не закрываем — пригодится следующему вопросу.
   Serial.printf("[stt] ответ %u байт за %u мс\n",
                 (unsigned)raw.length(), millis() - t0);
@@ -290,7 +291,7 @@ Result streamEnd() {
   Stream& st = g_stream;
   st.ended = true;
   const uint32_t t0 = millis();
-  while (!st.done && (millis() - t0) < 30000) delay(10);
+  while (!st.done && (millis() - t0) < kSttWaitMs) delay(10);
   if (!st.done) {
     Serial.println("[stt] поток не завершился — снимаю задачу");
     if (st.task != nullptr) vTaskDelete(st.task);

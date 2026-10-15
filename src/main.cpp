@@ -99,6 +99,8 @@ hold::Watcher g_holdRecord(M5.BtnA, kRecordStartMs, false);  // запись —
 uint32_t g_panelShownAt = 0;  // панель сброса висит, пока держат кнопку
 uint32_t g_panelUntil = 0;    // до какого момента держать панель результата
 String   g_pendingPlugin;     // плагин, ждущий ответа пользователя (город)
+String   g_retryText;         // распознанный вопрос: его можно повторить
+bool     g_canRetry = false;  // модель не ответила, но вопрос известен
 
 // --- меню настроек и панель плагинов ---
 size_t g_menuIndex = 0;
@@ -596,6 +598,7 @@ void trimHistory() {
 }
 
 void runQuestionInner();
+void askModel(const String& question);
 
 // Вопрос — это два TLS-рукопожатия, а им нужна непрерывная память. Пока он
 // идёт, панель отпускает снимок истории: страница всё равно не опрашивается,
@@ -606,6 +609,108 @@ void runQuestion() {
   if (panelWas) panel::releaseHistory();
   runQuestionInner();
   if (panelWas) updatePanelHistory();
+}
+
+// Спросить модель и обработать её ответ: обычный ответ, вызов плагина и
+// повторный запрос с материалом плагина. Вынесено отдельно, чтобы вопрос
+// можно было повторить, не переспрашивая голосом.
+void askModel(const String& question) {
+  // Вопрос распознан — спрашиваем модель потоком.
+  g_state = State::Streaming;
+  g_stream = "";
+  startWaiting();
+
+  llm::Stream st;
+  st.onDelta = onDelta;
+  llm::Options opt;
+  opt.toolsJson = plugins::toolsJson();
+  opt.maxTokens = chatcfg::effectiveTokens();
+  const std::string sys = chatcfg::systemPrompt();
+  opt.systemPrompt = sys.c_str();
+  Serial.printf("[cfg] в запрос: %s, память %u обменов, лимит %d токенов\n",
+                chatcfg::lengthLabel().c_str(),
+                (unsigned)chatcfg::effectiveTurns(g_history), opt.maxTokens);
+  llm::Reply a = llm::ask(g_history.messages(), question, st, opt);
+  finishAnswer(a);
+
+  // Модель вызвала плагин — выполняем действие.
+  if (a.ok && a.toolCall) {
+    // Плагин может работать секунды (поиск в интернете ходит по страницам),
+    // поэтому экран ожидания показываем до него, а не после: иначе экран
+    // замирает на старом тексте и кажется, что стик завис. Метка говорит,
+    // что именно происходит: «ищу в интернете», «переключаю свет».
+    ui::toolWait(plugins::labelOf(a.toolName.c_str()));
+
+    // Плагину нужна непрерывная память: своя задача со стеком в двадцать
+    // килобайт, а если он ходит в сеть — ещё и TLS-рукопожатие. Сессия модели
+    // для этого не нужна: ответ уже получен целиком, а следующий запрос
+    // поднимет соединение заново. Без этого падало «не запустить плагин».
+    net::llmClient().stop();
+    Serial.printf("[main] перед плагином: куча %u, блок %u\n",
+                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+
+    const plugins::Result pr =
+        plugins::run(a.toolName.c_str(), a.toolArgs.c_str());
+
+    // Панель результата — только если модель отвечать не будет.
+    if (!pr.answerAfter) showPluginResult(pr);
+
+    // Плагин просит модель ответить по материалу (поиск): простыню со
+    // страниц на экран не выводим, ответит модель.
+    if (pr.answerAfter && pr.ask.empty()) {
+      // Новый ответ начинается с чистого листа: иначе он допишется к тому,
+      // что модель успела сказать до вызова инструмента.
+      resetStream();
+      g_note = String(pr.note.c_str());
+
+      llm::Options fu;
+      fu.maxTokens = chatcfg::effectiveTokens();
+      fu.systemPrompt = sys.c_str();
+      fu.toolCallId = a.toolId.c_str();
+      fu.toolName = a.toolName.c_str();
+      fu.toolArgs = a.toolArgs.c_str();
+      fu.toolResult = pr.text.c_str();
+      llm::Reply c = llm::ask(g_history.messages(), question, st, fu);
+      finishAnswer(c);
+      if (c.ok && !c.toolCall) {
+        g_history.addUser(question.c_str());
+        g_history.addAssistant(c.text.c_str());
+        trimHistory();
+        updatePanelHistory();
+        g_color = kWhite;
+        g_page = 0;
+        wrapAnswer(c.text.c_str());
+        g_state = State::Showing;
+        drawAnswer(g_page);
+      } else {
+        // Модель не ответила — не оставляем стик в состоянии «в процессе»:
+        // иначе перестают работать и кнопка, и тряска, и он выглядит мёртвым.
+        showError(c.ok ? "Модель не ответила" : c.error.c_str());
+      }
+    }
+    return;
+  }
+
+  if (a.ok) {
+    Serial.printf("[main] ответ: %s\n", a.text.c_str());
+    g_history.addUser(question.c_str());
+    g_history.addAssistant(a.text.c_str());
+    trimHistory();
+    updatePanelHistory();
+    Serial.printf("[main] в памяти %u обменов\n",
+                  (unsigned)g_history.turnCount());
+
+    g_state = State::Showing;
+    g_color = kWhite;
+    g_page = 0;
+    wrapAnswer(a.text.c_str());
+    drawAnswer(g_page);
+  } else {
+    Serial.printf("[main] ошибка LLM: %s\n", a.error.c_str());
+    // Вопрос известен — его можно повторить, не переспрашивая голосом.
+    g_canRetry = true;
+    showError((String(a.error) + "\n\nкнопка A — повторить").c_str());
+  }
 }
 
 void runQuestionInner() {
@@ -658,6 +763,7 @@ void runQuestionInner() {
   startWaiting();
 
   g_state = State::Recognizing;
+  const uint32_t sttFrom = millis();
   stt::Result s;
   if (streaming) {
     // Хвост и ответ: почти всё уже ушло во время записи.
@@ -676,7 +782,10 @@ void runQuestionInner() {
     showError(s.error.c_str());
     return;
   }
-  Serial.printf("[main] текст: %s\n", s.text.c_str());
+  Serial.printf("[main] распознано за %u мс: %s\n",
+                (unsigned)(millis() - sttFrom), s.text.c_str());
+  g_retryText = s.text;
+  g_canRetry = false;
 
   // Плагин ждёт ответа (например, город для погоды): это ответ ему, а не
   // вопрос модели.
@@ -693,100 +802,7 @@ void runQuestionInner() {
   ++g_msgs;
   g_prefs.putUInt("msgs", g_msgs);
 
-  // Вопрос распознан — спрашиваем модель потоком.
-  g_state = State::Streaming;
-  g_stream = "";
-  startWaiting();
-
-  llm::Stream st;
-  st.onDelta = onDelta;
-  llm::Options opt;
-  opt.toolsJson = plugins::toolsJson();
-  opt.maxTokens = chatcfg::effectiveTokens();
-  const std::string sys = chatcfg::systemPrompt();
-  opt.systemPrompt = sys.c_str();
-  Serial.printf("[cfg] в запрос: %s, память %u обменов, лимит %d токенов\n",
-                chatcfg::lengthLabel().c_str(),
-                (unsigned)chatcfg::effectiveTurns(g_history), opt.maxTokens);
-  llm::Reply a = llm::ask(g_history.messages(), s.text, st, opt);
-  finishAnswer(a);
-
-  // Модель вызвала плагин — выполняем действие.
-  if (a.ok && a.toolCall) {
-    // Плагин может работать секунды (поиск в интернете ходит по страницам),
-    // поэтому экран ожидания показываем до него, а не после: иначе экран
-    // замирает на старом тексте и кажется, что стик завис. Метка говорит,
-    // что именно происходит: «ищу в интернете», «переключаю свет».
-    ui::toolWait(plugins::labelOf(a.toolName.c_str()));
-
-    // Плагину нужна непрерывная память: своя задача со стеком в двадцать
-    // килобайт, а если он ходит в сеть — ещё и TLS-рукопожатие. Сессия модели
-    // для этого не нужна: ответ уже получен целиком, а следующий запрос
-    // поднимет соединение заново. Без этого падало «не запустить плагин».
-    net::llmClient().stop();
-    Serial.printf("[main] перед плагином: куча %u, блок %u\n",
-                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
-
-    const plugins::Result pr =
-        plugins::run(a.toolName.c_str(), a.toolArgs.c_str());
-
-    // Панель результата — только если модель отвечать не будет.
-    if (!pr.answerAfter) showPluginResult(pr);
-
-    // Плагин просит модель ответить по материалу (поиск): простыню со
-    // страниц на экран не выводим, ответит модель.
-    if (pr.answerAfter && pr.ask.empty()) {
-      // Новый ответ начинается с чистого листа: иначе он допишется к тому,
-      // что модель успела сказать до вызова инструмента.
-      resetStream();
-      g_note = String(pr.note.c_str());
-
-      llm::Options fu;
-      fu.maxTokens = chatcfg::effectiveTokens();
-      fu.systemPrompt = sys.c_str();
-      fu.toolCallId = a.toolId.c_str();
-      fu.toolName = a.toolName.c_str();
-      fu.toolArgs = a.toolArgs.c_str();
-      fu.toolResult = pr.text.c_str();
-      llm::Reply c = llm::ask(g_history.messages(), s.text, st, fu);
-      finishAnswer(c);
-      if (c.ok && !c.toolCall) {
-        g_history.addUser(s.text.c_str());
-        g_history.addAssistant(c.text.c_str());
-        trimHistory();
-        updatePanelHistory();
-        g_color = kWhite;
-        g_page = 0;
-        wrapAnswer(c.text.c_str());
-        g_state = State::Showing;
-        drawAnswer(g_page);
-      } else {
-        // Модель не ответила — не оставляем стик в состоянии «в процессе»:
-        // иначе перестают работать и кнопка, и тряска, и он выглядит мёртвым.
-        showError(c.ok ? "Модель не ответила" : c.error.c_str());
-      }
-    }
-    return;
-  }
-
-  if (a.ok) {
-    Serial.printf("[main] ответ: %s\n", a.text.c_str());
-    g_history.addUser(s.text.c_str());
-    g_history.addAssistant(a.text.c_str());
-    trimHistory();
-    updatePanelHistory();
-    Serial.printf("[main] в памяти %u обменов\n",
-                  (unsigned)g_history.turnCount());
-
-    g_state = State::Showing;
-    g_color = kWhite;
-    g_page = 0;
-    wrapAnswer(a.text.c_str());
-    drawAnswer(g_page);
-  } else {
-    Serial.printf("[main] ошибка LLM: %s\n", a.error.c_str());
-    showError(a.error.c_str());
-  }
+  askModel(s.text);
 }
 
 // Боковая кнопка: тап — листание вперёд, удержание 3 с — сброс сессии.
@@ -1335,6 +1351,12 @@ void loop() {
     if (g_holdRecord.poll() == hold::Event::Fired) {
       runQuestion();
       markActivity();  // вопрос занял время — таймер простоя с нуля
+    } else if (g_canRetry && M5.BtnA.wasClicked()) {
+      // Модель не ответила, а вопрос известен: повторяем без записи.
+      const String q = g_retryText;
+      g_canRetry = false;
+      Serial.println("[main] повторяю вопрос без записи");
+      askModel(q);
     }
   }
 

@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <WiFiClientSecure.h>
 
+#include "settings.h"  // kHttpReadMs — срок чтения по умолчанию
+
 namespace net {
 
 // Подключается к Wi-Fi. Возвращает true при успехе.
@@ -47,6 +49,6 @@ typedef void (*TickFn)(void* ctx);
 // 1500 мс после первых байт. Рост ограничен maxLen. Таймаут — kHttpReadMs
 // от `started`. tick (если задан) вызывается во время ожидания.
 String readAll(WiFiClient& c, uint32_t started, size_t maxLen,
-               TickFn tick = nullptr, void* ctx = nullptr);
+               TickFn tick = nullptr, void* ctx = nullptr, uint32_t limitMs = kHttpReadMs);
 
 }  // namespace net

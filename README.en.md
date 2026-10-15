@@ -226,6 +226,17 @@ close the socket, so we paid those 1.5 s on every proxy call (a Tuya call takes
 clients: it delays small packets waiting for an ACK, and latency matters more
 here than header economy.
 
+**No stage waits forever.** Everything used to be bounded by a single
+one-minute read limit, and you could stare at three dots for a very long time
+without knowing whether the stick was working or stuck. Each stage now has its
+own limit — recognition 12 seconds, the model's first reply 15, the whole reply
+40, a plugin 20 — and when it runs out you get an error instead of endless
+waiting. From the third second a counter next to the dots shows that the stick
+is alive. If the model failed but the question was already recognised, you can
+**repeat it with a single press of button A** without speaking again. A retry
+after a failed connection only happens when the failure was quick — otherwise it
+would simply double the wait.
+
 **Speed.** The most expensive part of a reply is not the model but the TLS
 handshake: on the ESP32 it costs about a second and a half, while the model
 reaches its first token in about a second. So the connections to the proxy and

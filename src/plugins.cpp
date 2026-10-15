@@ -186,7 +186,8 @@ Result runScript(const Script& sc, const std::map<std::string, script::Value>& i
   }
 
   const uint32_t t0 = millis();
-  while (!j->done && (millis() - t0) < 30000) delay(10);
+  while (!j->done && (millis() - t0) < kPluginMs) delay(10);
+  const uint32_t took = millis() - t0;
   if (!j->done) {
     vTaskDelete(task);
     delete j;
@@ -215,7 +216,8 @@ Result runScript(const Script& sc, const std::map<std::string, script::Value>& i
   r.ok = true;
   // Результат поиска бывает на килобайты — в лог столько лить незачем.
   const char* tail = r.text.size() > 120 ? "…" : "";
-  Serial.printf("[plug] %s -> %.120s%s\n", sc.name.c_str(), r.text.c_str(), tail);
+  Serial.printf("[plug] %s за %u мс -> %.120s%s\n", sc.name.c_str(),
+                (unsigned)took, r.text.c_str(), tail);
   delete j;
   return r;
 }

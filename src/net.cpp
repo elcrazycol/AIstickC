@@ -89,13 +89,13 @@ bool writeAll(WiFiClient& c, const uint8_t* data, size_t len, uint32_t started,
 }
 
 String readAll(WiFiClient& c, uint32_t started, size_t maxLen, TickFn tick,
-               void* ctx) {
+               void* ctx, uint32_t limitMs) {
   String out;
   uint32_t idleSince = millis();
   size_t need = 0;  // полная длина ответа, как только узнаем её из заголовков
 
   while (true) {
-    if (millis() - started > kHttpReadMs) break;
+    if (millis() - started > limitMs) break;
     while (c.available() > 0) {
       const int ch = c.read();
       if (ch < 0) break;
