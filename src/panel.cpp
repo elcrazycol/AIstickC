@@ -9,6 +9,7 @@
 
 #include "panel_page.h"
 #include "pure/panel_life.h"
+#include "timeouts.h"
 
 namespace panel {
 
@@ -20,10 +21,11 @@ constexpr size_t kMaxJson = 8192;  // снимок истории: пять об
 // Сколько панель имеет право жить. Считаем по трём поводам: нет запросов,
 // прошёл общий потолок, подбирали код.
 constexpr uint32_t kPanelIdleMs = 120000;   // 2 минуты без запросов
-constexpr uint32_t kPanelMaxMs = 900000;    // 15 минут с момента открытия
-constexpr uint8_t  kPanelWrongLimit = 3;    // столько РАЗНЫХ неверных кодов
+constexpr uint32_t kPanelMaxFallback = 900000;  // если глубокий сон «никогда»
 
-const panellife::Policy g_policy(kPanelIdleMs, kPanelMaxMs, kPanelWrongLimit);
+// Потолок жизни панели берём из настроек: сколько стик живёт до глубокого сна,
+// столько же живёт и панель. Одно время вместо двух.
+panellife::Policy g_policy(kPanelIdleMs, kPanelMaxFallback);
 
 WebServer g_server(kPort);
 bool g_active = false;
@@ -36,8 +38,7 @@ volatile bool g_touched = false;
 volatile bool g_closeRequested = false;  // закрыться, но не из обработчика
 uint32_t g_openedAt = 0;
 uint32_t g_lastRequestAt = 0;
-uint8_t  g_wrongCodes = 0;      // сколько разных чужих кодов увидели
-char     g_lastWrongCode[8] = {0};
+volatile bool g_everUsed = false;  // на страницу хотя бы раз зашли
 
 // Код верный: продлеваем жизнь панели и отмечаем активность.
 bool codeOk() {
@@ -45,37 +46,10 @@ bool codeOk() {
     g_server.send(403, "text/plain; charset=utf-8", "код неверный");
     return false;
   }
-  g_wrongCodes = 0;
   g_lastRequestAt = millis();
   g_touched = true;
+  g_everUsed = true;
   return true;
-}
-
-// Запрос самой страницы с неверным кодом — вот это подбор: код приходит в
-// ссылке, набирать его руками негде. Считаем только такие запросы. Опрос
-// истории старым кодом бывает у забытой вкладки, и закрывать из-за неё панель
-// нельзя — иначе старая вкладка гасит новую сессию.
-bool pageCodeOk() {
-  if (g_server.arg("k") == g_code) return true;
-
-  // Подбор — это перебор разных кодов. Один и тот же чужой код подряд бывает
-  // у забытой вкладки, которую браузер восстановил: наказывать за это панель
-  // нельзя, иначе чужой старый экран гасит новую сессию.
-  const String k = g_server.arg("k");
-  if (strcmp(k.c_str(), g_lastWrongCode) != 0) {
-    snprintf(g_lastWrongCode, sizeof(g_lastWrongCode), "%s", k.c_str());
-    ++g_wrongCodes;
-    Serial.printf("[panel] чужой код %s от %s (разных: %u)\n", k.c_str(),
-                  g_server.client().remoteIP().toString().c_str(),
-                  (unsigned)g_wrongCodes);
-  }
-  if (g_wrongCodes >= g_policy.wrongLimit) {
-    Serial.printf("[panel] подбор кода (%u разных) — закрываю\n",
-                  (unsigned)g_wrongCodes);
-    g_closeRequested = true;
-  }
-  g_server.send(403, "text/plain; charset=utf-8", "код неверный");
-  return false;
 }
 
 // Страница говорит «до свидания»: её закрыли или свернули. Браузер отправляет
@@ -92,9 +66,7 @@ void handleBye() {
 }
 
 void handleRoot() {
-  if (!pageCodeOk()) return;
-  g_lastRequestAt = millis();
-  g_touched = true;
+  if (!codeOk()) return;
   g_server.send_P(200, "text/html; charset=utf-8", kPanelPage);
 }
 
@@ -141,9 +113,13 @@ bool begin() {
   // Отсчёт жизни начинается заново с каждым открытием.
   g_openedAt = millis();
   g_lastRequestAt = g_openedAt;
-  g_wrongCodes = 0;
-  g_lastWrongCode[0] = 0;
+  g_everUsed = false;
   g_closeRequested = false;
+
+  // Потолок — как у глубокого сна: сколько стик живёт без дела, столько же
+  // разрешено жить панели. «Никогда» в настройках — берём запасной предел.
+  const uint32_t deep = cfg::deepMs();
+  g_policy.maxMs = deep ? deep : kPanelMaxFallback;
 
   g_server.on("/", handleRoot);
   g_server.on("/api/chat", handleChat);
@@ -185,11 +161,10 @@ void poll() {
   // чтобы закрытие не случалось посреди обработки.
   const uint32_t now = millis();
   if (g_closeRequested ||
-      g_policy.shouldClose(now, g_openedAt, g_lastRequestAt, g_wrongCodes)) {
-    Serial.printf("[panel] закрываю: простой %u мс, возраст %u мс, "
-                  "неверных кодов %u\n",
+      g_policy.shouldClose(now, g_openedAt, g_lastRequestAt)) {
+    Serial.printf("[panel] закрываю: простой %u мс, возраст %u мс, потолок %u\n",
                   (unsigned)(now - g_lastRequestAt), (unsigned)(now - g_openedAt),
-                  (unsigned)g_wrongCodes);
+                  (unsigned)g_policy.maxMs);
     end();
     return;
   }
@@ -198,6 +173,8 @@ void poll() {
 }
 
 bool active() { return g_active; }
+
+bool used() { return g_everUsed; }
 
 std::string url() { return g_url; }
 

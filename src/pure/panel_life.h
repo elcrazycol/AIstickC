@@ -7,8 +7,7 @@
 //   - нет запросов дольше отведённого (страницу закрыли, вкладку свернули,
 //     браузер упал — запросы просто перестали приходить);
 //   - прошёл общий потолок с момента открытия (даже если запросы идут:
-//     забытая в фоне вкладка не должна держать панель сутками);
-//   - кто-то подбирал код доступа.
+//     забытая в фоне вкладка не должна держать панель сутками).
 //
 // Модуль чистый: ни Arduino, ни сети, проверяется обычными тестами.
 #pragma once
@@ -18,12 +17,11 @@
 namespace panellife {
 
 struct Policy {
-  uint32_t idleMs;      // нет запросов столько — закрыть
-  uint32_t maxMs;       // с момента открытия — закрыть безусловно
-  uint8_t  wrongLimit;  // столько неверных кодов — закрыть
+  uint32_t idleMs;  // нет запросов столько — закрыть
+  uint32_t maxMs;   // с момента открытия — закрыть безусловно
 
-  Policy(uint32_t idle = 120000, uint32_t max = 900000, uint8_t wrong = 3)
-      : idleMs(idle), maxMs(max), wrongLimit(wrong) {}
+  Policy(uint32_t idle = 120000, uint32_t max = 900000)
+      : idleMs(idle), maxMs(max) {}
 
   bool idleExpired(uint32_t now, uint32_t lastRequestAt) const {
     return (uint32_t)(now - lastRequestAt) >= idleMs;
@@ -33,13 +31,10 @@ struct Policy {
     return (uint32_t)(now - openedAt) >= maxMs;
   }
 
-  bool wrongExpired(uint8_t wrong) const { return wrong >= wrongLimit; }
-
   // Общий ответ: закрываться ли прямо сейчас.
-  bool shouldClose(uint32_t now, uint32_t openedAt, uint32_t lastRequestAt,
-                   uint8_t wrong) const {
-    return idleExpired(now, lastRequestAt) || maxExpired(now, openedAt) ||
-           wrongExpired(wrong);
+  bool shouldClose(uint32_t now, uint32_t openedAt,
+                   uint32_t lastRequestAt) const {
+    return idleExpired(now, lastRequestAt) || maxExpired(now, openedAt);
   }
 };
 

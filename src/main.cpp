@@ -109,6 +109,8 @@ std::vector<std::string> g_pluginNames;  // что ставить/удалять
 bool     g_imuOk = false;
 uint32_t g_lastShake = 0;
 motion::Wake g_wake(kPickupG);  // решение «движение будит экран»
+bool g_panelOn = false;        // что показывает экран панели
+bool g_panelUsed = false;      // заходил ли кто-то на страницу
 bool     g_lightSleepLogged = false;  // про лёгкий сон пишем один раз за заход
 
 // --- Энергосбережение ---
@@ -717,6 +719,14 @@ void runQuestionInner() {
     // что именно происходит: «ищу в интернете», «переключаю свет».
     ui::toolWait(plugins::labelOf(a.toolName.c_str()));
 
+    // Плагину нужна непрерывная память: своя задача со стеком в двадцать
+    // килобайт, а если он ходит в сеть — ещё и TLS-рукопожатие. Сессия модели
+    // для этого не нужна: ответ уже получен целиком, а следующий запрос
+    // поднимет соединение заново. Без этого падало «не запустить плагин».
+    net::llmClient().stop();
+    Serial.printf("[main] перед плагином: куча %u, блок %u\n",
+                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+
     const plugins::Result pr =
         plugins::run(a.toolName.c_str(), a.toolArgs.c_str());
 
@@ -849,29 +859,50 @@ void drawPlugins() {
   ui::list("Плагины", g_pluginRows, g_pluginIndex);
 }
 
-// Веб-панель: поднять сервер и показать QR с адресом и кодом.
+// Экран веб-панели: выключатель. Сам сервер не поднимаем — панель включается
+// кнопкой A, чтобы она жила ровно тогда, когда её включили.
+void drawPanel() {
+  g_panelOn = panel::active();
+  g_panelUsed = panel::used();
+  if (!g_panelOn) {
+    ui::panel(false, false, "", "", "");
+    return;
+  }
+  const std::string u = panel::url();
+  const String ip = WiFi.localIP().toString();
+  ui::panel(true, g_panelUsed, u.c_str(), ip.c_str(), panel::code());
+}
+
 void showPanel() {
   g_holdExit.clear();
   markActivity();
+  g_state = State::Panel;
+  drawPanel();
+}
+
+// Включить или выключить панель кнопкой A.
+void togglePanel() {
+  if (panel::active()) {
+    panel::end();
+    Serial.println("[main] панель выключена кнопкой");
+    drawPanel();
+    return;
+  }
   if (!ensureWifi()) {
     ui::notice("нет сети — панель не поднять");
     delay(1500);
-    showIdle();
+    drawPanel();
     return;
   }
   if (!panel::begin()) {
     ui::notice("панель не поднялась");
     delay(1500);
-    showIdle();
+    drawPanel();
     return;
   }
-
-  g_state = State::Panel;
-  updatePanelHistory();  // панель должна показать то, что уже наговорено
-  const std::string u = panel::url();
-  const String ip = WiFi.localIP().toString();
-  ui::qr(u.c_str(), ip.c_str(), panel::code());
-  Serial.printf("[main] панель: %s\n", u.c_str());
+  updatePanelHistory();  // страница должна показать то, что уже наговорено
+  drawPanel();
+  Serial.printf("[main] панель включена: %s\n", panel::url().c_str());
 }
 
 // Собирает список: доступные из репозитория + установленные, которых там нет.
@@ -1031,7 +1062,11 @@ void applyHoldTimes() {
 }
 
 void pollPanel() {
-  // Кнопки как в меню: боковая удержанием — назад, большая — тоже назад.
+  // Панель могла закрыться сама — по тишине, потолку или вместе с экраном.
+  // Тогда экран обязан сказать «выключена», а не врать про QR.
+  if (panel::active() != g_panelOn || panel::used() != g_panelUsed) drawPanel();
+
+  // Кнопки как в меню: боковая удержанием — назад.
   switch (g_holdExit.poll()) {
     case hold::Event::Fired:
       showIdle();
@@ -1041,7 +1076,7 @@ void pollPanel() {
     default:
       break;
   }
-  if (M5.BtnA.wasClicked()) showIdle();
+  if (M5.BtnA.wasClicked()) togglePanel();
 }
 
 // BtnA: войти в пункт или переключить значение. Списки короткие, поэтому
@@ -1277,12 +1312,6 @@ void loop() {
     return;
   }
   if (g_state == State::Panel) {
-    // Панель могла закрыться сама — по простою, по потолку или из-за подбора
-    // кода. Тогда экран с QR больше не актуален: возвращаемся на главный.
-    if (!panel::active()) {
-      showIdle();
-      return;
-    }
     pollPanel();
     // С экрана панели тоже можно спросить: ответ придёт и на страницу.
     if (g_holdRecord.poll() == hold::Event::Fired) {

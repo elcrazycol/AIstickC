@@ -305,25 +305,31 @@ def screen_answer(font, lines, page, total, pct=78, rssi=4, color=WHITE,
     return img
 
 
-def screen_panel(font, url, ip, code, pct=78, rssi=4):
-    """Экран веб-панели: QR с адресом, IP, код доступа."""
-    import segno
+def screen_panel(font, url, ip, code, on=True, used=False, pct=78, rssi=4):
+    """Экран веб-панели: выключатель. Включена — QR и состояние связи."""
     img = Image.new("RGB", (W, H), BLACK)
     status_bar(img, font, pct, rssi)
+    if not on:
+        font.text(img, "Панель выключена", 12, 40, RED)
+        font.text(img, "кнопка A — включить", 12, 66, GRAY)
+        font.text(img, "удержание B — назад", 12, 90, GRAY)
+        return img
 
+    import segno
     qs, qx, qy = 112, 4, 16
     qr = segno.make(url, error="l")
     qr.save("/tmp/_qr.png", scale=10, border=0, dark="#000000", light="#ffffff")
-    code_img = Image.open("/tmp/_qr.png").convert("RGB").resize((qs, qs), Image.NEAREST)
-    img.paste(code_img, (qx, qy))
+    qr_img = Image.open("/tmp/_qr.png").convert("RGB").resize((qs, qs), Image.NEAREST)
+    img.paste(qr_img, (qx, qy))
 
     tx = qx + qs + 8
-    font.text(img, "Веб-панель", tx, 20, GREEN)
-    font.text(img, ip, tx, 42, WHITE)
-    font.text(img, "код " + code, tx, 64, YELLOW)
-    font.text(img, "наведи", tx, 86, GRAY)
-    font.text(img, "камеру", tx, 106, GRAY)
+    font.text(img, "Веб-панель", tx, 18, GREEN)
+    font.text(img, ip, tx, 38, WHITE)
+    font.text(img, "код " + code, tx, 58, YELLOW)
+    font.text(img, "на связи" if used else "ждём", tx, 78, GREEN if used else YELLOW)
+    font.text(img, "A — выкл.", tx, 98, GRAY)
     return img
+
 
 
 def screen_notice(font, text, pct=78, rssi=4):
@@ -481,8 +487,9 @@ def main():
         "Горутина запускается словом go.",
     ], 0, 1), "screen-code.png")
     save(screen_notice(font, "История разговора очищена"), "screen-notice.png")
-    save(screen_panel(font, "http://192.168.1.42/?k=7305", "192.168.1.42", "7305"),
-         "screen-panel.png")
+    save(screen_panel(font, "http://192.168.1.42/?k=730512", "192.168.1.42",
+                      "730512", on=True, used=True), "screen-panel.png")
+    save(screen_panel(font, "", "", "", on=False), "screen-panel-off.png")
     save(screen_notice(font,
                        "не поставить: нет связи с raw.githubusercontent.com"),
          "screen-notice-long.png")

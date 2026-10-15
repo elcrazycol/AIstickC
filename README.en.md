@@ -475,26 +475,29 @@ voice and the answer lands there too.
 it on a phone is one more step, while in the address it is simply there. Anyone
 who cannot see the stick's screen does not get in.
 
-**The panel lives only as long as it is needed.** That is not decoration but a
-rule: while it is open the Wi-Fi is up (so the stick cannot light-sleep) and an
-open door hangs on the network. So it closes on any of these:
+**The panel is switched on with a button.** Menu → "Web panel" opens a screen
+with a switch: the panel appears off (in red), button A turns it on and shows the
+QR code, another press turns it off. The state colour is not decoration:
+**green** — someone is on the page, **yellow** — on, but nobody has opened it
+yet.
+
+![Panel off](docs/images/screen-panel-off.png)
+
+**A panel that is on lives only as long as it is needed.** While it is up the
+Wi-Fi is on (so the stick cannot light-sleep) and an open door hangs on the
+network. Therefore:
 
 | Reason | When it fires |
 |---|---|
 | You left the page | immediately — the page sends a beacon on unload or hide |
 | Silence | 2 minutes without a request: tab closed, browser crashed, phone asleep |
-| Hard cap | 15 minutes from opening, even while requests keep coming |
+| Hard cap | the same as the time to deep sleep (the "Power" setting) |
 | Screen off | the stick went idle |
-| Code probing | three **different** wrong codes — someone is guessing |
 
-The code is six digits rather than four: a million guesses is pointless, ten
-thousand is entirely realistic. A new code on every opening, so an old link
-stops working.
-
-The same wrong code repeated is not treated as probing — that is a forgotten
-tab restored by the browser, and a new session must not be punished for it. The
-page itself is disciplined too: on "wrong code" it falls silent instead of
-knocking further.
+The code is six digits: a million guesses is pointless, ten thousand is entirely
+realistic. A new code on every switch-on, so an old link stops working. The page
+itself is disciplined too: on "wrong code" it falls silent instead of knocking
+further.
 
 **While the panel is being used, the stick stays awake.** Every request from the
 page extends the idle timer — otherwise the panel would die twenty seconds after

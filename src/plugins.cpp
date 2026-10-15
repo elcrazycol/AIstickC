@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "settings.h"
+#include "net.h"
 #include "script_host.h"
 #include "pure/json_extract.h"
 #include "pure/plugin_meta.h"
@@ -162,11 +163,25 @@ Result runScript(const Script& sc, const std::map<std::string, script::Value>& i
   j->sc = &sc;
   j->vars = in;
 
+  // Стек задачи — двадцать килобайт непрерывной памяти, и её может не
+  // оказаться: сессии модели и распознавания держат по сорок. Плагину они не
+  // нужны — если он пойдёт в сеть, соединение поднимется заново. Поэтому при
+  // неудаче отпускаем обе и пробуем ещё раз.
   TaskHandle_t task = nullptr;
   xTaskCreatePinnedToCore(scriptTask, "plug", 20480, j, 1, &task, 1);
   if (task == nullptr) {
+    Serial.printf("[plug] нет памяти под задачу (блок %u) — отпускаю сессии\n",
+                  (unsigned)ESP.getMaxAllocHeap());
+    net::llmClient().stop();
+    net::proxyClient().stop();
+    delay(50);
+    xTaskCreatePinnedToCore(scriptTask, "plug", 20480, j, 1, &task, 1);
+  }
+  if (task == nullptr) {
     delete j;
     r.text = "не запустить плагин";
+    Serial.printf("[plug] и после этого не хватило (блок %u)\n",
+                  (unsigned)ESP.getMaxAllocHeap());
     return r;
   }
 

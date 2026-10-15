@@ -208,36 +208,52 @@ void dotsTask(void*) {
 
 }  // namespace
 
-// Экран веб-панели. QR рисует сама библиотека: белым с чёрными модулями и
-// тихой зоной — так его читает любой сканер, а на тёмной панели он бы не
-// считался. Справа остаётся место на подпись, IP и код доступа.
-void qr(const char* url, const char* ip, const char* code) {
+// Экран веб-панели: выключатель, состояние и QR, когда панель включена.
+void panel(bool on, bool used, const char* url, const char* ip,
+           const char* code) {
   Guard g;
   M5.Display.fillScreen(kBlack);
   statusBarLocked();
   useFontLocked();
 
-  constexpr int qs = 112;  // сторона QR
+  if (!on) {
+    // Выключена: это и есть главный ответ экрана, поэтому крупно и красным.
+    M5.Display.setTextColor(kRed, kBlack);
+    M5.Display.setCursor(12, 40);
+    M5.Display.print("Панель выключена");
+    M5.Display.setTextColor(kGray, kBlack);
+    M5.Display.setCursor(12, 66);
+    M5.Display.print("кнопка A — включить");
+    M5.Display.setCursor(12, 90);
+    M5.Display.print("удержание B — назад");
+    return;
+  }
+
+  // Включена: QR рисует библиотека — белым с чёрными модулями и тихой зоной,
+  // иначе сканер его не прочтёт.
+  constexpr int qs = 112;
   constexpr int qx = 4;
   constexpr int qy = 16;
   M5.Display.qrcode(url, qx, qy, qs, 1, true);
 
   const int tx = qx + qs + 8;
   M5.Display.setTextColor(kGreen, kBlack);
-  M5.Display.setCursor(tx, 20);
+  M5.Display.setCursor(tx, 18);
   M5.Display.print("Веб-панель");
   M5.Display.setTextColor(kWhite, kBlack);
-  M5.Display.setCursor(tx, 42);
+  M5.Display.setCursor(tx, 38);
   M5.Display.print(ip);
   M5.Display.setTextColor(kYellow, kBlack);
-  M5.Display.setCursor(tx, 64);
+  M5.Display.setCursor(tx, 58);
   M5.Display.print("код ");
   M5.Display.print(code);
+  // Зелёный — кто-то на странице, жёлтый — включена, но никто не заходил.
+  M5.Display.setTextColor(used ? kGreen : kYellow, kBlack);
+  M5.Display.setCursor(tx, 78);
+  M5.Display.print(used ? "на связи" : "ждём");
   M5.Display.setTextColor(kGray, kBlack);
-  M5.Display.setCursor(tx, 86);
-  M5.Display.print("наведи");
-  M5.Display.setCursor(tx, 106);
-  M5.Display.print("камеру");
+  M5.Display.setCursor(tx, 98);
+  M5.Display.print("A — выкл.");
 }
 
 void begin() {
