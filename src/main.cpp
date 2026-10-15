@@ -593,7 +593,20 @@ void trimHistory() {
   g_history.trim(kChatMaxChars);
 }
 
+void runQuestionInner();
+
+// Вопрос — это два TLS-рукопожатия, а им нужна непрерывная память. Пока он
+// идёт, панель отпускает снимок истории: страница всё равно не опрашивается,
+// пока цикл занят ответом. Панель при этом остаётся поднятой и после ответа
+// снова отдаёт историю — уже вместе с новым обменом.
 void runQuestion() {
+  const bool panelWas = panel::active();
+  if (panelWas) panel::releaseHistory();
+  runQuestionInner();
+  if (panelWas) updatePanelHistory();
+}
+
+void runQuestionInner() {
   if (WiFi.status() != WL_CONNECTED) {
     startWaiting();
     if (!net::connectWifi(kWifiTimeoutMs)) {
@@ -1241,6 +1254,11 @@ void loop() {
     markActivity();
   }
 
+  // Панель обслуживаем из общего цикла, а не отдельной задачей: её стек в
+  // шесть килобайт — это ровно тот запас непрерывной памяти, которого не
+  // хватало TLS-рукопожатию при открытых сессиях модели и распознавания.
+  // Заодно панель сама уступает вопросу: пока цикл занят ответом, она молчит.
+  panel::poll();
   // Запросы к панели — это активность: пока по ней ходят, стик не спит.
   if (panel::touched()) markActivity();
 

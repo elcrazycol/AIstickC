@@ -482,11 +482,19 @@ down and the memory is released, and the page says so plainly. A background tab
 does not poll the stick: a forgotten tab would otherwise keep it awake and drain
 the battery.
 
-**The cost is 8 KB of memory** (free heap 188 916 → 180 948 bytes, largest block
-unchanged) and not a single TLS session: the panel is plain HTTP, so asking a
-question by voice while the panel is open works as usual. The server runs in its
-own task rather than the main loop — otherwise the panel would freeze for the
-seconds the model is answering, exactly when someone is looking at it.
+**The cost is about one kilobyte** and not a single TLS session: the panel is
+plain HTTP, so asking a question by voice while the panel is open works as usual.
+The server is served from the main loop rather than its own task — that task's
+six-kilobyte stack turned out to be exactly the contiguous memory a TLS
+handshake was missing once the model and speech sessions were open. Measured
+before and after: with two sessions open the largest contiguous block went from
+55 284 to 61 428 bytes.
+
+**The panel yields to a question.** While the stick is answering, the loop is
+busy and the panel stays quiet, releasing the history snapshot — the memory is
+needed for the handshakes. Page requests are not lost: they wait for the answer
+and arrive together with it. Verified: a request sent during an eight-second
+busy period waited and then returned 200.
 
 For now the panel only reads. Sending a question as text, changing settings and
 running plugins from the page are planned, see #6.

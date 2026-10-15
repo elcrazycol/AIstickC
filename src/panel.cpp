@@ -17,7 +17,6 @@ constexpr uint16_t kPort = 80;
 constexpr size_t kMaxJson = 8192;  // снимок истории: пять обменов с запасом
 
 WebServer g_server(kPort);
-TaskHandle_t g_task = nullptr;
 bool g_active = false;
 char g_code[5] = {0};
 std::string g_url;
@@ -63,13 +62,6 @@ void handleNotFound() {
   g_server.send(404, "text/plain; charset=utf-8", "нет такой страницы");
 }
 
-void serverTask(void*) {
-  for (;;) {
-    if (g_active) g_server.handleClient();
-    vTaskDelay(pdMS_TO_TICKS(2));
-  }
-}
-
 }  // namespace
 
 bool begin() {
@@ -92,10 +84,6 @@ bool begin() {
   g_server.begin();
   g_active = true;
 
-  if (g_task == nullptr) {
-    xTaskCreatePinnedToCore(serverTask, "panel", 6144, nullptr, 1, &g_task, 0);
-  }
-
   Serial.printf("[panel] поднята на %s\n", g_url.c_str());
   return true;
 }
@@ -104,7 +92,26 @@ void end() {
   if (!g_active) return;
   g_active = false;
   g_server.stop();
+  // Снимок истории больше не нужен — отдаём память.
+  if (g_lock != nullptr && xSemaphoreTake(g_lock, portMAX_DELAY) == pdTRUE) {
+    g_json.clear();
+    g_json.shrink_to_fit();
+    xSemaphoreGive(g_lock);
+  }
   Serial.println("[panel] погашена");
+}
+
+void releaseHistory() {
+  if (g_lock == nullptr) return;
+  if (xSemaphoreTake(g_lock, portMAX_DELAY) == pdTRUE) {
+    g_json.clear();
+    g_json.shrink_to_fit();
+    xSemaphoreGive(g_lock);
+  }
+}
+
+void poll() {
+  if (g_active) g_server.handleClient();
 }
 
 bool active() { return g_active; }
