@@ -54,13 +54,14 @@ pre code{border:0;padding:0;background:none}
 <body>
 <header><b>AIstick</b><span id="st">подключаюсь…</span></header>
 <main id="chat"><div class="empty">Пока пусто. Спроси стик — ответ появится здесь.</div></main>
-<div class="asleep" id="asleep" hidden>Стик спит — нажми кнопку на нём, и панель оживёт</div>
+<div class="asleep" id="asleep" hidden>Связи со стиком нет: он спит или панель уже закрыта. Открой её на стике заново</div>
 <script>
 var K = new URLSearchParams(location.search).get('k') || '';
 var chat = document.getElementById('chat');
 var st = document.getElementById('st');
 var asleep = document.getElementById('asleep');
-var rev = -1, fails = 0, timer = null;
+var rev = -1, fails = 0, timer = null, stopped = false;
+var lastTouch = Date.now();
 
 function esc(s) {
   return s.replace(/[&<>"]/g, function (c) {
@@ -122,7 +123,13 @@ function atBottom() {
 function tick() {
   timer = null;
   fetch('/api/chat?k=' + encodeURIComponent(K), {cache: 'no-store'}).then(function (r) {
-    if (r.status === 403) { st.textContent = 'код неверный'; return null; }
+    if (r.status === 403) {
+      // Код не наш: панель открыли заново, и эта вкладка уже чужая. Молчим,
+      // иначе старый экран продолжит стучаться и панель закроется от подбора.
+      st.textContent = 'код устарел — открой панель заново';
+      stopped = true;
+      return null;
+    }
     return r.json();
   }).then(function (d) {
     if (!d) return;
@@ -137,16 +144,42 @@ function tick() {
     }
   }).catch(function () {
     // Стик ушёл в сон: Wi-Fi выключен, и запросы просто не проходят.
-    if (++fails >= 3) { st.textContent = 'нет связи'; asleep.hidden = false; }
+    if (++fails >= 3) {
+      st.textContent = 'нет связи';
+      asleep.hidden = false;
+      stopped = true;  // стик закрыл панель — дальше опрашивать нечего
+    }
   }).then(function () {
     schedule();
   });
 }
 
 function schedule() {
-  if (timer || document.hidden) return;
+  if (timer || stopped || document.hidden) return;
   timer = setTimeout(tick, 1000);
 }
+
+// Сказать стику «до свидания»: браузер отправляет это маячком при уходе со
+// страницы, поэтому панель гаснет сразу, а не ждёт своего таймаута.
+function bye() {
+  navigator.sendBeacon('/bye?k=' + encodeURIComponent(K));
+}
+
+// Человек не на странице — закрываем панель.
+addEventListener('pagehide', bye);
+
+// А если он на странице, но давно ничего не делал — считаем, что ушёл.
+['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (e) {
+  addEventListener(e, function () { lastTouch = Date.now(); }, {passive: true});
+});
+setInterval(function () {
+  if (stopped) return;
+  if (Date.now() - lastTouch > 180000) {
+    stopped = true;
+    bye();
+    st.textContent = 'панель закрыта';
+  }
+}, 5000);
 
 // В фоне не опрашиваем: иначе забытая вкладка держала бы стик бодрым.
 document.addEventListener('visibilitychange', function () {
